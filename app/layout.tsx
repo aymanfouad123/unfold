@@ -3,8 +3,8 @@ import { GeistSans } from "geist/font/sans";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "unfold — a quiet place to write",
-  description: "A minimal, private space for your thoughts.",
+  title: "unfold",
+  description: "A minimal journal for developing your thoughts and working through them.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
