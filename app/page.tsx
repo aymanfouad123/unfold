@@ -334,9 +334,12 @@ export default function Home() {
           </header>
           <main className="writing-main">
             <div className="writing-column">
-              {activeJournal.showDate && (
-                <h1 className="writing-date"><time dateTime={activeJournal.createdAt}>{fullDate(activeJournal.createdAt)}</time></h1>
-              )}
+              <h1
+                className={`writing-date${activeJournal.showDate ? "" : " is-hidden"}`}
+                aria-hidden={!activeJournal.showDate}
+              >
+                <time dateTime={activeJournal.createdAt}>{fullDate(activeJournal.createdAt)}</time>
+              </h1>
               <textarea
                 ref={editorRef}
                 className="writing-editor"

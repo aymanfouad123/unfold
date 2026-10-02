@@ -31,6 +31,7 @@ h1, h2 { font-size: 16px; font-weight: 500; margin: 0; }
 .writing-main { padding: 56px 32px 120px; }
 .writing-column { width: min(100%, 640px); margin-inline: auto; }
 .writing-date { color: var(--muted); font-size: 12px; line-height: 1.6; font-weight: 400; letter-spacing: 0.02em; margin-bottom: 20px; }
+.writing-date.is-hidden { visibility: hidden; }
 .writing-editor { display: block; width: 100%; min-height: 50dvh; padding: 0; border: 0; border-radius: 0; resize: none; overflow: hidden; background: transparent; color: var(--text); font-size: 17px; line-height: 1.75; overflow-wrap: anywhere; caret-color: var(--text); }
 .writing-editor:focus,
 .writing-editor:focus-visible { outline: none; }
