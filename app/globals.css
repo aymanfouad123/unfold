@@ -42,7 +42,21 @@ h1, h2 { font-size: 16px; font-weight: 500; margin: 0; }
 .duration-button { border: 0; border-radius: 6px; background: transparent; color: var(--muted); padding: 4px 8px; font-size: 12px; font-variant-numeric: tabular-nums; }
 .duration-button:hover { color: var(--text); }
 .duration-button.is-active { color: var(--text); }
-.timer { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.timer {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: center;
+}
+button.timer:hover { color: var(--text); background: #303030; }
+.timer.is-paused { color: var(--text); opacity: 0.55; }
 .icon-button { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); }
 .icon-button:hover { color: var(--text); background: #303030; }
 .entries-panel { position: fixed; inset: 0 0 0 auto; width: 320px; padding: 24px 16px; overflow-y: auto; overscroll-behavior: contain; background: var(--panel); border-left: 1px solid var(--line); }

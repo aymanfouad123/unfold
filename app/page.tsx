@@ -301,10 +301,17 @@ export default function Home() {
 
   function updateContent(content: string) {
     if (!activeId) return;
-    if (!timerRunning && !timeUp) setTimerRunning(true);
+    if (!timerRunning && !timeUp && remainingRef.current === durationMin * 60) {
+      setTimerRunning(true);
+    }
     setJournals((current) => current.map((journal) =>
       journal.id === activeId ? { ...journal, content } : journal,
     ));
+  }
+
+  function toggleTimer() {
+    if (timeUp || remaining >= durationMin * 60) return;
+    setTimerRunning((running) => !running);
   }
 
   function toggleDate() {
@@ -381,9 +388,16 @@ export default function Home() {
                   </>
                 ) : (
                   <>
-                    <span className="timer" aria-label={`Time remaining ${formatTime(remaining)}`}>
+                    <button
+                      className={`timer${timerRunning ? "" : " is-paused"}`}
+                      type="button"
+                      aria-pressed={timerRunning}
+                      aria-label={timerRunning ? `Pause timer, ${formatTime(remaining)} remaining` : `Resume timer, ${formatTime(remaining)} remaining`}
+                      title={timerRunning ? "Pause" : "Resume"}
+                      onClick={toggleTimer}
+                    >
                       {formatTime(remaining)}
-                    </span>
+                    </button>
                     <button
                       className="icon-button"
                       type="button"
