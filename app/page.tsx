@@ -52,7 +52,7 @@ function listDate(value: string) {
 
 function formatTime(seconds: number) {
   const minutes = Math.floor(seconds / 60);
-  return `${String(minutes).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+  return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
 function playChime() {
@@ -128,12 +128,15 @@ export default function Home() {
   const [remaining, setRemaining] = useState(DEFAULT_DURATION * 60);
   const [timerRunning, setTimerRunning] = useState(false);
   const [timeUp, setTimeUp] = useState(false);
+  const [durationOpen, setDurationOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [mobile, setMobile] = useState(false);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   const panelButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const durationRef = useRef<HTMLDivElement>(null);
+  const durationTriggerRef = useRef<HTMLButtonElement>(null);
   const remainingRef = useRef(DEFAULT_DURATION * 60);
 
   function resetTimerSession(nextDuration = DEFAULT_DURATION) {
@@ -143,6 +146,7 @@ export default function Home() {
     setRemaining(seconds);
     setTimerRunning(false);
     setTimeUp(false);
+    setDurationOpen(false);
   }
 
   useEffect(() => {
@@ -186,6 +190,29 @@ export default function Home() {
     }, 1000);
     return () => window.clearInterval(interval);
   }, [activeId, timerRunning, timeUp]);
+
+  useEffect(() => {
+    if (!durationOpen) return;
+    durationRef.current
+      ?.querySelector<HTMLButtonElement>('.duration-option[aria-selected="true"]')
+      ?.focus();
+    function handlePointer(event: MouseEvent) {
+      if (durationRef.current && !durationRef.current.contains(event.target as Node)) {
+        setDurationOpen(false);
+      }
+    }
+    function handleKey(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setDurationOpen(false);
+      durationTriggerRef.current?.focus();
+    }
+    document.addEventListener("mousedown", handlePointer);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handlePointer);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [durationOpen]);
 
   const activeJournal = journals.find((journal) => journal.id === activeId);
   const sortedJournals = [...journals].sort(
@@ -293,6 +320,8 @@ export default function Home() {
     remainingRef.current = minutes * 60;
     setDurationMin(minutes);
     setRemaining(minutes * 60);
+    setDurationOpen(false);
+    durationTriggerRef.current?.focus();
   }
 
   function resetTimer() {
@@ -303,6 +332,7 @@ export default function Home() {
     if (!activeId) return;
     if (!timerRunning && !timeUp && remainingRef.current === durationMin * 60) {
       setTimerRunning(true);
+      setDurationOpen(false);
     }
     setJournals((current) => current.map((journal) =>
       journal.id === activeId ? { ...journal, content } : journal,
@@ -362,17 +392,43 @@ export default function Home() {
             <div className="footer-inner">
               <div className="timer-group">
                 {!timerStarted ? (
-                  DURATIONS.map((minutes) => (
+                  <div className={`duration-picker${durationOpen ? " is-open" : ""}`} ref={durationRef}>
                     <button
-                      key={minutes}
-                      className={`duration-button${durationMin === minutes ? " is-active" : ""}`}
+                      ref={durationTriggerRef}
+                      className="timer duration-trigger"
                       type="button"
-                      aria-pressed={durationMin === minutes}
-                      onClick={() => selectDuration(minutes)}
+                      aria-expanded={durationOpen}
+                      aria-haspopup="listbox"
+                      aria-controls="duration-menu"
+                      aria-label={`Session length ${durationMin} minutes`}
+                      title="Session length"
+                      tabIndex={durationOpen ? -1 : 0}
+                      onClick={() => setDurationOpen(true)}
                     >
-                      {minutes}
+                      {formatTime(durationMin * 60)}
                     </button>
-                  ))
+                    <div
+                      id="duration-menu"
+                      className="duration-menu"
+                      role="listbox"
+                      aria-label="Session length"
+                      aria-hidden={!durationOpen}
+                    >
+                      {DURATIONS.map((minutes) => (
+                        <button
+                          key={minutes}
+                          className={`timer duration-option${durationMin === minutes ? " is-active" : ""}`}
+                          type="button"
+                          role="option"
+                          aria-selected={durationMin === minutes}
+                          tabIndex={durationOpen ? 0 : -1}
+                          onClick={() => selectDuration(minutes)}
+                        >
+                          {minutes}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 ) : timeUp ? (
                   <>
                     <span className="timer" aria-live="polite">Time&apos;s up</span>
