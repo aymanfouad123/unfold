@@ -92,7 +92,64 @@ function preview(content: string) {
   return content.replace(/\s+/g, " ").trim() || "Empty entry";
 }
 
-function EntryList({ journals, activeId, onSelect }: {
+function localDateKey(value: string | Date) {
+  const date = typeof value === "string" ? new Date(value) : value;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function preferSameDayJournal(a: Journal, b: Journal) {
+  const aHasContent = a.content.trim().length > 0;
+  const bHasContent = b.content.trim().length > 0;
+  if (aHasContent !== bHasContent) return aHasContent ? a : b;
+  return Date.parse(a.createdAt) >= Date.parse(b.createdAt) ? a : b;
+}
+
+function dedupeByLocalDate(journals: Journal[]) {
+  const byDate = new Map<string, Journal>();
+  for (const journal of journals) {
+    const key = localDateKey(journal.createdAt);
+    const current = byDate.get(key);
+    if (!current) {
+      byDate.set(key, journal);
+      continue;
+    }
+    const winner = preferSameDayJournal(current, journal);
+    byDate.set(key, {
+      ...winner,
+      elapsedSeconds: Math.max(current.elapsedSeconds, journal.elapsedSeconds),
+    });
+  }
+  return [...byDate.values()].sort(
+    (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
+  );
+}
+
+function findTodaysJournal(journals: Journal[]) {
+  const today = localDateKey(new Date());
+  return (
+    journals.find((journal) => localDateKey(journal.createdAt) === today) ??
+    null
+  );
+}
+
+function makeJournal(): Journal {
+  return {
+    id: window.crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    content: "",
+    showDate: true,
+    elapsedSeconds: 0,
+  };
+}
+
+function EntryList({
+  journals,
+  activeId,
+  onSelect,
+}: {
   journals: Journal[];
   activeId?: string | null;
   onSelect: (id: string) => void;
@@ -151,10 +208,19 @@ export default function Home() {
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
-      setJournals(readJournals());
+      const existing = dedupeByLocalDate(readJournals());
+      const todaysJournal = findTodaysJournal(existing);
+      if (todaysJournal) {
+        setJournals(existing);
+        setActiveId(todaysJournal.id);
+      } else {
+        const journal = makeJournal();
+        setJournals([journal, ...existing]);
+        setActiveId(journal.id);
+      }
       const isMobile = window.matchMedia("(max-width: 899px)").matches;
       setMobile(isMobile);
-      setPanelOpen(!isMobile);
+      setOpenPanel(isMobile ? null : "entries");
       setLoaded(true);
     });
     return () => window.cancelAnimationFrame(frame);
