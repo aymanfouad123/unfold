@@ -1,7 +1,20 @@
 "use client";
 
-import { Calendar, CalendarOff, RotateCcw } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import {
+  ArrowUp,
+  Calendar,
+  CalendarOff,
+  RotateCcw,
+  Astroid,
+  X,
+} from "lucide-react";
+import {
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 type Journal = {
   id: string;
@@ -10,6 +23,13 @@ type Journal = {
   showDate: boolean;
   elapsedSeconds: number;
 };
+
+type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+type OpenPanel = "entries" | "chat" | null;
 
 const STORAGE_KEY = "unfold-journals-v1";
 const DURATIONS = [5, 10, 15, 20] as const;
@@ -40,13 +60,18 @@ function readJournals(): Journal[] {
 
 function fullDate(value: string) {
   return new Intl.DateTimeFormat("en", {
-    weekday: "long", month: "long", day: "numeric", year: "numeric",
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
   }).format(new Date(value));
 }
 
 function listDate(value: string) {
   return new Intl.DateTimeFormat("en", {
-    month: "short", day: "numeric", year: "numeric",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   }).format(new Date(value));
 }
 
@@ -57,9 +82,13 @@ function formatTime(seconds: number) {
 
 function playChime() {
   try {
-    const AudioContextCtor = window.AudioContext || (window as typeof window & {
-      webkitAudioContext?: typeof AudioContext;
-    }).webkitAudioContext;
+    const AudioContextCtor =
+      window.AudioContext ||
+      (
+        window as typeof window & {
+          webkitAudioContext?: typeof AudioContext;
+        }
+      ).webkitAudioContext;
     if (!AudioContextCtor) return;
     const context = new AudioContextCtor();
     const now = context.currentTime;
@@ -166,8 +195,10 @@ function EntryList({
           onClick={() => onSelect(journal.id)}
         >
           <time className="entry-date" dateTime={journal.createdAt}>
-            {listDate(journal.createdAt)} · {new Intl.DateTimeFormat("en", {
-              hour: "numeric", minute: "2-digit",
+            {listDate(journal.createdAt)} ·{" "}
+            {new Intl.DateTimeFormat("en", {
+              hour: "numeric",
+              minute: "2-digit",
             }).format(new Date(journal.createdAt))}
           </time>
           <span className="entry-preview">{preview(journal.content)}</span>
@@ -186,15 +217,25 @@ export default function Home() {
   const [timerRunning, setTimerRunning] = useState(false);
   const [timeUp, setTimeUp] = useState(false);
   const [durationOpen, setDurationOpen] = useState(false);
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [openPanel, setOpenPanel] = useState<OpenPanel>(null);
   const [mobile, setMobile] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatPending, setChatPending] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
-  const panelRef = useRef<HTMLElement>(null);
+  const entriesPanelRef = useRef<HTMLElement>(null);
+  const chatPanelRef = useRef<HTMLElement>(null);
   const panelButtonRef = useRef<HTMLButtonElement>(null);
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const chatButtonRef = useRef<HTMLButtonElement>(null);
+  const entriesCloseRef = useRef<HTMLButtonElement>(null);
+  const chatCloseRef = useRef<HTMLButtonElement>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
+  const chatMessagesRef = useRef<HTMLDivElement>(null);
   const durationRef = useRef<HTMLDivElement>(null);
   const durationTriggerRef = useRef<HTMLButtonElement>(null);
   const remainingRef = useRef(DEFAULT_DURATION * 60);
+  const panelOpen = openPanel !== null;
 
   function resetTimerSession(nextDuration = DEFAULT_DURATION) {
     const seconds = nextDuration * 60;
@@ -248,11 +289,13 @@ export default function Home() {
       } else {
         setRemaining(next);
       }
-      setJournals((current) => current.map((journal) =>
-        journal.id === activeId
-          ? { ...journal, elapsedSeconds: journal.elapsedSeconds + 1 }
-          : journal,
-      ));
+      setJournals((current) =>
+        current.map((journal) =>
+          journal.id === activeId
+            ? { ...journal, elapsedSeconds: journal.elapsedSeconds + 1 }
+            : journal,
+        ),
+      );
     }, 1000);
     return () => window.clearInterval(interval);
   }, [activeId, timerRunning, timeUp]);
@@ -260,14 +303,19 @@ export default function Home() {
   useEffect(() => {
     if (!durationOpen) return;
     durationRef.current
-      ?.querySelector<HTMLButtonElement>('.duration-option[aria-selected="true"]')
+      ?.querySelector<HTMLButtonElement>(
+        '.duration-option[aria-selected="true"]',
+      )
       ?.focus();
     function handlePointer(event: MouseEvent) {
-      if (durationRef.current && !durationRef.current.contains(event.target as Node)) {
+      if (
+        durationRef.current &&
+        !durationRef.current.contains(event.target as Node)
+      ) {
         setDurationOpen(false);
       }
     }
-    function handleKey(event: KeyboardEvent) {
+    function handleKey(event: globalThis.KeyboardEvent) {
       if (event.key !== "Escape") return;
       setDurationOpen(false);
       durationTriggerRef.current?.focus();
@@ -288,8 +336,12 @@ export default function Home() {
   useEffect(() => {
     const query = window.matchMedia("(max-width: 899px)");
     function updateViewport() {
-      setMobile(query.matches);
-      setPanelOpen(!query.matches);
+      const isMobile = query.matches;
+      setMobile(isMobile);
+      setOpenPanel((current) => {
+        if (isMobile) return null;
+        return current ?? "entries";
+      });
     }
     query.addEventListener("change", updateViewport);
     return () => query.removeEventListener("change", updateViewport);
@@ -318,21 +370,30 @@ export default function Home() {
   }, [activeId]);
 
   useEffect(() => {
-    if (!panelOpen || !activeId) return;
-    if (mobile) closeButtonRef.current?.focus();
+    if (!openPanel || !activeId) return;
+    const panelRef = openPanel === "entries" ? entriesPanelRef : chatPanelRef;
+    const closeRef = openPanel === "entries" ? entriesCloseRef : chatCloseRef;
+    const triggerRef = openPanel === "entries" ? panelButtonRef : chatButtonRef;
+
+    if (mobile) closeRef.current?.focus();
+    else if (openPanel === "chat") chatInputRef.current?.focus();
+
     const previousOverflow = document.body.style.overflow;
     if (mobile) document.body.style.overflow = "hidden";
-    function handleKey(event: KeyboardEvent) {
+
+    function handleKey(event: globalThis.KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
-        setPanelOpen(false);
-        window.requestAnimationFrame(() => panelButtonRef.current?.focus());
+        setOpenPanel(null);
+        window.requestAnimationFrame(() => triggerRef.current?.focus());
       }
       if (mobile && event.key === "Tab") {
-        const buttons = panelRef.current?.querySelectorAll<HTMLButtonElement>("button");
-        if (!buttons?.length) return;
-        const first = buttons[0];
-        const last = buttons[buttons.length - 1];
+        const focusable = panelRef.current?.querySelectorAll<HTMLElement>(
+          "button:not([disabled]), textarea:not([disabled])",
+        );
+        if (!focusable?.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
         if (event.shiftKey && document.activeElement === first) {
           event.preventDefault();
           last.focus();
@@ -347,38 +408,45 @@ export default function Home() {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", handleKey);
     };
-  }, [panelOpen, mobile, activeId]);
+  }, [openPanel, mobile, activeId]);
 
-  function closePanel() {
-    setPanelOpen(false);
-    window.requestAnimationFrame(() => panelButtonRef.current?.focus());
+  useEffect(() => {
+    const list = chatMessagesRef.current;
+    if (!list || openPanel !== "chat") return;
+    list.scrollTop = list.scrollHeight;
+  }, [messages, chatPending, chatError, openPanel]);
+
+  useEffect(() => {
+    const input = chatInputRef.current;
+    if (!input || openPanel !== "chat") return;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
+  }, [chatInput, openPanel]);
+
+  function openEntriesPanel() {
+    setOpenPanel("entries");
+    window.requestAnimationFrame(() => entriesCloseRef.current?.focus());
   }
 
-  function createJournal() {
-    const journal: Journal = {
-      id: window.crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-      content: "",
-      showDate: true,
-      elapsedSeconds: 0,
-    };
-    setJournals((current) => [journal, ...current]);
-    resetTimerSession();
-    setActiveId(journal.id);
-    if (mobile) setPanelOpen(false);
-    window.requestAnimationFrame(() => editorRef.current?.focus());
+  function openChatPanel() {
+    setOpenPanel("chat");
+    window.requestAnimationFrame(() => {
+      if (mobile) chatCloseRef.current?.focus();
+      else chatInputRef.current?.focus();
+    });
+  }
+
+  function closePanel() {
+    const trigger = openPanel === "chat" ? chatButtonRef : panelButtonRef;
+    setOpenPanel(null);
+    window.requestAnimationFrame(() => trigger.current?.focus());
   }
 
   function openJournal(id: string) {
     resetTimerSession();
     setActiveId(id);
-    if (mobile) setPanelOpen(false);
+    if (mobile) setOpenPanel(null);
     window.requestAnimationFrame(() => editorRef.current?.focus());
-  }
-
-  function returnHome() {
-    resetTimerSession();
-    setActiveId(null);
   }
 
   function selectDuration(minutes: number) {
@@ -400,9 +468,11 @@ export default function Home() {
       setTimerRunning(true);
       setDurationOpen(false);
     }
-    setJournals((current) => current.map((journal) =>
-      journal.id === activeId ? { ...journal, content } : journal,
-    ));
+    setJournals((current) =>
+      current.map((journal) =>
+        journal.id === activeId ? { ...journal, content } : journal,
+      ),
+    );
   }
 
   function toggleTimer() {
@@ -411,29 +481,102 @@ export default function Home() {
   }
 
   function toggleDate() {
-    setJournals((current) => current.map((journal) =>
-      journal.id === activeId ? { ...journal, showDate: !journal.showDate } : journal,
-    ));
+    setJournals((current) =>
+      current.map((journal) =>
+        journal.id === activeId
+          ? { ...journal, showDate: !journal.showDate }
+          : journal,
+      ),
+    );
+  }
+
+  async function sendChatMessage(event?: FormEvent) {
+    event?.preventDefault();
+    const content = chatInput.trim();
+    if (!content || chatPending || !activeJournal) return;
+
+    const nextMessages: ChatMessage[] = [
+      ...messages,
+      { role: "user", content },
+    ];
+    setMessages(nextMessages);
+    setChatInput("");
+    setChatError(null);
+    setChatPending(true);
+
+    try {
+      const response = await fetch("/api/prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: nextMessages,
+          text: activeJournal.content,
+        }),
+      });
+      const data: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        const error =
+          data &&
+          typeof data === "object" &&
+          "error" in data &&
+          typeof (data as { error: unknown }).error === "string"
+            ? (data as { error: string }).error
+            : "Something went wrong.";
+        throw new Error(error);
+      }
+      const reply =
+        data &&
+        typeof data === "object" &&
+        "reply" in data &&
+        typeof (data as { reply: unknown }).reply === "string"
+          ? (data as { reply: string }).reply.trim()
+          : "";
+      if (!reply) throw new Error("Empty reply from companion.");
+      setMessages((current) => [
+        ...current,
+        { role: "assistant", content: reply },
+      ]);
+    } catch (reason) {
+      setChatError(
+        reason instanceof Error ? reason.message : "Something went wrong.",
+      );
+    } finally {
+      setChatPending(false);
+    }
+  }
+
+  function handleChatKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void sendChatMessage();
+    }
   }
 
   if (!loaded) return <div className="app-shell" aria-busy="true" />;
 
   if (activeJournal) {
     const timerStarted = timerRunning || timeUp || remaining < durationMin * 60;
+    const entriesOpen = openPanel === "entries";
+    const chatOpen = openPanel === "chat";
 
     return (
-      <div className={`app-shell writing-screen${panelOpen ? " panel-open" : ""}`}>
+      <div
+        className={`app-shell writing-screen${panelOpen ? " panel-open" : ""}`}
+      >
         <div className="writing-workspace" inert={mobile && panelOpen}>
           <header className="writing-header">
-            <button className="text-button" type="button" onClick={returnHome}>All entries</button>
             <button
               ref={panelButtonRef}
-              className="text-button panel-toggle"
+              className={`text-button panel-toggle${entriesOpen ? " is-hidden" : ""}`}
               type="button"
-              aria-expanded={panelOpen}
+              aria-expanded={entriesOpen}
               aria-controls="entries-panel"
-              onClick={() => setPanelOpen((open) => !open)}
-            >Entries</button>
+              aria-hidden={entriesOpen}
+              tabIndex={entriesOpen ? -1 : 0}
+              onClick={openEntriesPanel}
+            >
+              Entries
+            </button>
           </header>
           <main className="writing-main">
             <div className="writing-column">
@@ -441,7 +584,9 @@ export default function Home() {
                 className={`writing-date${activeJournal.showDate ? "" : " is-hidden"}`}
                 aria-hidden={!activeJournal.showDate}
               >
-                <time dateTime={activeJournal.createdAt}>{fullDate(activeJournal.createdAt)}</time>
+                <time dateTime={activeJournal.createdAt}>
+                  {fullDate(activeJournal.createdAt)}
+                </time>
               </h1>
               <textarea
                 ref={editorRef}
@@ -458,7 +603,10 @@ export default function Home() {
             <div className="footer-inner">
               <div className="timer-group">
                 {!timerStarted ? (
-                  <div className={`duration-picker${durationOpen ? " is-open" : ""}`} ref={durationRef}>
+                  <div
+                    className={`duration-picker${durationOpen ? " is-open" : ""}`}
+                    ref={durationRef}
+                  >
                     <button
                       ref={durationTriggerRef}
                       className="timer duration-trigger"
@@ -497,7 +645,9 @@ export default function Home() {
                   </div>
                 ) : timeUp ? (
                   <>
-                    <span className="timer" aria-live="polite">Time&apos;s up</span>
+                    <span className="timer" aria-live="polite">
+                      Time&apos;s up
+                    </span>
                     <button
                       className="icon-button"
                       type="button"
@@ -514,7 +664,11 @@ export default function Home() {
                       className={`timer${timerRunning ? "" : " is-paused"}`}
                       type="button"
                       aria-pressed={timerRunning}
-                      aria-label={timerRunning ? `Pause timer, ${formatTime(remaining)} remaining` : `Resume timer, ${formatTime(remaining)} remaining`}
+                      aria-label={
+                        timerRunning
+                          ? `Pause timer, ${formatTime(remaining)} remaining`
+                          : `Resume timer, ${formatTime(remaining)} remaining`
+                      }
                       title={timerRunning ? "Pause" : "Resume"}
                       onClick={toggleTimer}
                     >
@@ -532,35 +686,141 @@ export default function Home() {
                   </>
                 )}
               </div>
-              <button
-                className="icon-button"
-                type="button"
-                aria-pressed={activeJournal.showDate}
-                aria-label="Toggle date"
-                title={activeJournal.showDate ? "Hide date" : "Show date"}
-                onClick={toggleDate}
-              >
-                {activeJournal.showDate ? (
-                  <Calendar size={16} strokeWidth={1.5} />
-                ) : (
-                  <CalendarOff size={16} strokeWidth={1.5} />
-                )}
-              </button>
+              <div className="footer-actions">
+                <button
+                  className="icon-button"
+                  type="button"
+                  aria-pressed={activeJournal.showDate}
+                  aria-label="Toggle date"
+                  title={activeJournal.showDate ? "Hide date" : "Show date"}
+                  onClick={toggleDate}
+                >
+                  {activeJournal.showDate ? (
+                    <Calendar size={16} strokeWidth={1.5} />
+                  ) : (
+                    <CalendarOff size={16} strokeWidth={1.5} />
+                  )}
+                </button>
+                <button
+                  ref={chatButtonRef}
+                  className={`icon-button${chatOpen ? " is-active" : ""}`}
+                  type="button"
+                  aria-expanded={chatOpen}
+                  aria-controls="chat-panel"
+                  aria-label={chatOpen ? "Close companion" : "Open companion"}
+                  title="Companion"
+                  onClick={() => (chatOpen ? closePanel() : openChatPanel())}
+                >
+                  <Astroid size={16} strokeWidth={1.5} />
+                </button>
+              </div>
             </div>
           </footer>
         </div>
-        {panelOpen && mobile && <div className="panel-backdrop" onClick={closePanel} aria-hidden="true" />}
-        {panelOpen && (
-          <aside id="entries-panel" className="entries-panel" ref={panelRef}
-            role={mobile ? "dialog" : undefined} aria-modal={mobile ? true : undefined} aria-labelledby="panel-heading">
-            <div className="panel-header">
-              <h2 id="panel-heading">Entries</h2>
-              <button ref={closeButtonRef} className="text-button close-button" type="button" aria-label="Close entries panel" onClick={closePanel}>×</button>
-            </div>
-            <button className="text-button panel-new" type="button" onClick={createJournal}>New entry</button>
-            <EntryList journals={sortedJournals} activeId={activeId} onSelect={openJournal} />
-          </aside>
-        )}
+        <div
+          className={`panel-backdrop${panelOpen ? " is-open" : ""}`}
+          onClick={closePanel}
+          aria-hidden="true"
+        />
+        <aside
+          id="entries-panel"
+          className={`side-panel${entriesOpen ? " is-open" : ""}`}
+          ref={entriesPanelRef}
+          inert={!entriesOpen}
+          aria-hidden={!entriesOpen}
+          role={mobile ? "dialog" : undefined}
+          aria-modal={mobile && entriesOpen ? true : undefined}
+          aria-labelledby="panel-heading"
+        >
+          <div className="panel-header">
+            <h2 id="panel-heading">Entries</h2>
+            <button
+              ref={entriesCloseRef}
+              className="icon-button close-button"
+              type="button"
+              aria-label="Close entries panel"
+              onClick={closePanel}
+            >
+              <X size={16} strokeWidth={1.5} />
+            </button>
+          </div>
+          <EntryList
+            journals={sortedJournals}
+            activeId={activeId}
+            onSelect={openJournal}
+          />
+        </aside>
+        <aside
+          id="chat-panel"
+          className={`side-panel chat-panel${chatOpen ? " is-open" : ""}`}
+          ref={chatPanelRef}
+          inert={!chatOpen}
+          aria-hidden={!chatOpen}
+          role={mobile ? "dialog" : undefined}
+          aria-modal={mobile && chatOpen ? true : undefined}
+          aria-labelledby="chat-heading"
+        >
+          <div className="panel-header">
+            <h2 id="chat-heading">Companion</h2>
+            <button
+              ref={chatCloseRef}
+              className="icon-button close-button"
+              type="button"
+              aria-label="Close companion panel"
+              onClick={closePanel}
+            >
+              <X size={16} strokeWidth={1.5} />
+            </button>
+          </div>
+          <div
+            className="chat-messages"
+            ref={chatMessagesRef}
+            aria-live="polite"
+          >
+            {!messages.length && !chatPending && !chatError ? (
+              <p className="empty-state">Ask about what you&apos;re writing.</p>
+            ) : null}
+            {messages.map((message, index) => (
+              <div
+                key={`${message.role}-${index}`}
+                className={`chat-message is-${message.role}`}
+              >
+                {message.content}
+              </div>
+            ))}
+            {chatPending ? (
+              <div className="chat-message is-assistant is-pending">
+                Thinking…
+              </div>
+            ) : null}
+            {chatError ? (
+              <p className="chat-error" role="alert">
+                {chatError}
+              </p>
+            ) : null}
+          </div>
+          <form className="chat-composer" onSubmit={sendChatMessage}>
+            <textarea
+              ref={chatInputRef}
+              className="chat-input"
+              rows={1}
+              aria-label="Message companion"
+              placeholder="Ask something…"
+              value={chatInput}
+              disabled={chatPending}
+              onChange={(event) => setChatInput(event.target.value)}
+              onKeyDown={handleChatKeyDown}
+            />
+            <button
+              className="chat-send"
+              type="submit"
+              aria-label="Send message"
+              disabled={chatPending || !chatInput.trim()}
+            >
+              <ArrowUp size={16} strokeWidth={1.75} />
+            </button>
+          </form>
+        </aside>
       </div>
     );
   }
@@ -570,7 +830,6 @@ export default function Home() {
       <main className="home-main">
         <header className="home-header">
           <h1>Entries</h1>
-          <button className="text-button" type="button" onClick={createJournal}>New entry</button>
         </header>
         <EntryList journals={sortedJournals} onSelect={openJournal} />
       </main>
