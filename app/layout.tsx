@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "unfold",
-  description: "A minimal journal for developing your thoughts and working through them.",
+  description: "A quiet canvas for ideas, concepts, and thoughts.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
