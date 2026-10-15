@@ -2,9 +2,25 @@
   color-scheme: dark;
   --background: #202020;
   --panel: #262626;
+  --panel-lifted: #292929;
   --text: #d6d6d6;
-  --muted: #a0a0a0;
-  --line: #343434;
+  --muted: #858585;
+  --hairline: rgb(255 255 255 / 6%);
+  --hairline-hover: rgb(255 255 255 / 10%);
+  --hairline-active: rgb(255 255 255 / 17%);
+  --highlight: inset 0 1px 0 rgb(255 255 255 / 3%);
+  --shadow-rest:
+    var(--highlight),
+    0 1px 2px rgb(0 0 0 / 12%),
+    0 5px 16px rgb(0 0 0 / 7%);
+  --shadow-raised:
+    var(--highlight),
+    0 8px 24px rgb(0 0 0 / 16%),
+    0 2px 6px rgb(0 0 0 / 12%);
+  --shadow-lifted:
+    var(--highlight),
+    0 22px 56px rgb(0 0 0 / 28%),
+    0 5px 16px rgb(0 0 0 / 18%);
   --ease-out: cubic-bezier(0.32, 0.72, 0, 1);
   --radius-sm: 10px;
   --radius-md: 12px;
@@ -49,12 +65,13 @@ button:focus-visible,
   inset: 0;
   overflow: hidden;
   background: var(--background);
-  cursor: grab;
+  cursor: default;
   touch-action: none;
   user-select: none;
 }
 
-.canvas-shell.is-panning {
+.canvas-shell.is-panning,
+.canvas-shell.is-panning * {
   cursor: grabbing;
 }
 
@@ -82,7 +99,7 @@ button:focus-visible,
 .zoom-reset {
   position: fixed;
   z-index: 1000000;
-  color: #777;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1;
   letter-spacing: 0.01em;
@@ -99,18 +116,67 @@ button:focus-visible,
   bottom: 18px;
   min-width: 42px;
   padding: 6px 7px;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
+  box-shadow: none;
   font-variant-numeric: tabular-nums;
   transition:
     color 140ms ease,
-    background-color 140ms ease;
+    background-color 140ms ease,
+    text-shadow 180ms ease,
+    transform 180ms var(--ease-out);
 }
 
-.zoom-reset:hover {
+.zoom-reset:hover,
+.zoom-reset:focus-visible,
+.zoom-controls:has(.zoom-popover:popover-open) .zoom-reset {
+  color: var(--text);
+  background: rgb(255 255 255 / 4%);
+  text-shadow: 0 0 10px rgb(255 255 255 / 24%);
+}
+
+.zoom-reset:active {
+  background: rgb(255 255 255 / 6%);
+  transform: scale(0.96);
+}
+
+.zoom-popover {
+  position: fixed;
+  inset: auto 20px 52px auto;
+  min-width: 180px;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--hairline-hover);
+  border-radius: var(--radius-sm);
+  background: var(--panel-lifted);
+  color: var(--text);
+  box-shadow: var(--shadow-raised);
+}
+
+.zoom-popover button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+}
+
+.zoom-popover button:hover,
+.zoom-popover button:focus-visible {
+  background: rgb(255 255 255 / 5%);
+  text-shadow: 0 0 10px rgb(255 255 255 / 24%);
+}
+
+.zoom-popover-value {
   color: var(--muted);
-  background: #292929;
+  font-variant-numeric: tabular-nums;
 }
 
 .canvas-empty {
@@ -120,28 +186,19 @@ button:focus-visible,
   align-items: center;
   justify-content: center;
   gap: 10px;
-  color: #777;
+  color: var(--muted);
   font-size: 13px;
   letter-spacing: 0.005em;
-  opacity: 0;
   pointer-events: none;
-  transform: translateY(4px);
-  transition:
-    opacity 260ms ease,
-    transform 360ms var(--ease-out);
-}
-
-.canvas-empty.is-visible {
-  opacity: 1;
-  transform: translateY(0);
 }
 
 .canvas-empty kbd {
   padding: 3px 6px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--hairline);
   border-radius: 6px;
-  background: #242424;
-  color: #858585;
+  background: var(--panel);
+  box-shadow: var(--highlight);
+  color: var(--muted);
   font: inherit;
   font-size: 11px;
   line-height: 1;
@@ -151,8 +208,7 @@ button:focus-visible,
 .note-composer {
   position: absolute;
   width: 240px;
-  min-height: 96px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius-md);
   background: var(--panel);
   color: var(--text);
@@ -161,8 +217,9 @@ button:focus-visible,
 .note-card {
   display: flex;
   flex-direction: column;
-  padding: 16px 16px 12px;
-  cursor: grab;
+  padding: 14px 16px;
+  cursor: default;
+  box-shadow: var(--shadow-rest);
   transition:
     border-color 140ms ease,
     box-shadow 180ms ease,
@@ -170,43 +227,42 @@ button:focus-visible,
 }
 
 .note-card:hover {
-  border-color: #414141;
+  border-color: var(--hairline-hover);
+  box-shadow: var(--shadow-raised);
 }
 
 .note-card.is-selected {
-  border-color: #626262;
+  border-color: var(--hairline-active);
+  box-shadow:
+    var(--shadow-raised),
+    0 0 0 1px rgb(255 255 255 / 4%);
 }
 
 .note-card.is-dragging {
   cursor: grabbing;
-  border-color: #555;
-  box-shadow:
-    0 18px 46px rgb(0 0 0 / 24%),
-    0 3px 10px rgb(0 0 0 / 16%);
-}
-
-.note-card.is-settling {
-  animation: settle-note 240ms var(--ease-out);
+  border-color: var(--hairline-active);
+  box-shadow: var(--shadow-lifted);
 }
 
 .note-card p {
-  flex: 1;
-  min-height: 54px;
   margin: 0;
   color: var(--text);
-  font-size: 14.5px;
-  line-height: 1.55;
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: -0.003em;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+  text-wrap: pretty;
   user-select: text;
 }
 
 .note-card time {
-  align-self: flex-start;
-  margin-top: 10px;
-  color: #777;
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 16px;
+  color: var(--muted);
   font-size: 10px;
-  line-height: 1.2;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
   opacity: 0;
   transition: opacity 140ms ease;
@@ -221,7 +277,7 @@ button:focus-visible,
 .note-composer textarea {
   display: block;
   width: 100%;
-  min-height: 64px;
+  min-height: 21px;
   padding: 0;
   overflow: hidden;
   border: 0;
@@ -231,8 +287,9 @@ button:focus-visible,
   background: transparent;
   color: var(--text);
   caret-color: var(--text);
-  font-size: 14.5px;
-  line-height: 1.55;
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: -0.003em;
 }
 
 .note-card textarea::placeholder,
@@ -243,44 +300,42 @@ button:focus-visible,
 
 .note-card.is-editing {
   cursor: text;
-  border-color: #626262;
-  box-shadow: 0 12px 34px rgb(0 0 0 / 16%);
+  border-color: var(--hairline-active);
+  box-shadow:
+    var(--shadow-raised),
+    0 0 0 1px rgb(255 255 255 / 4%);
 }
 
 .note-composer {
   z-index: 1000001;
-  padding: 16px;
-  box-shadow:
-    0 20px 56px rgb(0 0 0 / 28%),
-    0 4px 14px rgb(0 0 0 / 18%);
+  padding: 14px 16px;
+  background: var(--panel-lifted);
+  box-shadow: var(--shadow-lifted);
   cursor: text;
-  animation: open-composer 180ms var(--ease-out);
 }
 
-@keyframes open-composer {
-  from {
-    opacity: 0;
-    transform: translateY(4px) scale(0.985);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+.note-composer textarea {
+  padding-right: 18px;
 }
 
-@keyframes settle-note {
-  from {
-    border-color: #555;
-    box-shadow:
-      0 20px 56px rgb(0 0 0 / 28%),
-      0 4px 14px rgb(0 0 0 / 18%);
-    transform: translateY(-2px);
-  }
-  to {
-    border-color: #626262;
-    box-shadow: none;
-    transform: translateY(0);
-  }
+.composer-submit {
+  position: absolute;
+  right: 14px;
+  bottom: 15px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(2px);
+  transition:
+    opacity 140ms ease,
+    transform 180ms var(--ease-out);
+}
+
+.composer-submit.is-visible {
+  opacity: 0.55;
+  transform: translateY(0);
 }
 
 @media (max-width: 640px) {
@@ -294,6 +349,11 @@ button:focus-visible,
     bottom: calc(12px + env(safe-area-inset-bottom));
   }
 
+  .zoom-popover {
+    right: 14px;
+    bottom: calc(46px + env(safe-area-inset-bottom));
+  }
+
   .canvas-empty {
     flex-direction: column;
     gap: 9px;
@@ -302,15 +362,10 @@ button:focus-visible,
 
 @media (prefers-reduced-motion: reduce) {
   .canvas-grid,
-  .canvas-empty,
   .zoom-reset,
   .note-card,
-  .note-card time {
+  .note-card time,
+  .composer-submit {
     transition-duration: 1ms !important;
-  }
-
-  .note-card.is-settling,
-  .note-composer {
-    animation-duration: 1ms !important;
   }
 }

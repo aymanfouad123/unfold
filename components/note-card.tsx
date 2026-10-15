@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { motion } from "motion/react";
 
 import type { Note } from "@/lib/notes";
 
@@ -12,10 +13,10 @@ type NoteCardProps = {
   note: Note;
   zoom: number;
   selected: boolean;
-  settling: boolean;
   onSelect: (id: string) => void;
   onMove: (id: string, x: number, y: number) => void;
   onChange: (id: string, text: string) => void;
+  onMeasure: (id: string, height: number) => void;
 };
 
 type DragSession = {
@@ -40,11 +41,12 @@ export default function NoteCard({
   note,
   zoom,
   selected,
-  settling,
   onSelect,
   onMove,
   onChange,
+  onMeasure,
 }: NoteCardProps) {
+  const cardRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dragRef = useRef<DragSession | null>(null);
   const cancelEditRef = useRef(false);
@@ -52,6 +54,18 @@ export default function NoteCard({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(note.text);
   const [dragging, setDragging] = useState(false);
+
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!card) return;
+
+    const reportHeight = () => onMeasure(note.id, card.offsetHeight);
+    reportHeight();
+
+    const observer = new ResizeObserver(reportHeight);
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, [note.id, onMeasure]);
 
   useEffect(() => {
     if (!editing) return;
@@ -65,7 +79,7 @@ export default function NoteCard({
     const textarea = textareaRef.current;
     if (!textarea || !editing) return;
     textarea.style.height = "0";
-    textarea.style.height = `${Math.max(64, textarea.scrollHeight)}px`;
+    textarea.style.height = `${Math.max(21, textarea.scrollHeight)}px`;
   }, [draft, editing]);
 
   function startEditing() {
@@ -167,17 +181,21 @@ export default function NoteCard({
   }
 
   return (
-    <div
+    <motion.div
+      ref={cardRef}
       className={[
         "note-card",
         selected ? "is-selected" : "",
         dragging ? "is-dragging" : "",
-        settling ? "is-settling" : "",
         editing ? "is-editing" : "",
       ]
         .filter(Boolean)
         .join(" ")}
       style={{ left: note.x, top: note.y, zIndex: note.z }}
+      layoutId={dragging ? undefined : `note-${note.id}`}
+      initial={{ opacity: 0, scale: 0.985 }}
+      animate={{ opacity: 1, scale: dragging ? 1.015 : 1 }}
+      exit={{ opacity: 0, scale: 0.97, transition: { duration: 0.14 } }}
       role={editing ? undefined : "button"}
       tabIndex={editing ? -1 : 0}
       aria-label={`Note: ${note.text}`}
@@ -212,6 +230,6 @@ export default function NoteCard({
           {displayTime(note.updatedAt)}
         </time>
       ) : null}
-    </div>
+    </motion.div>
   );
 }

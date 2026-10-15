@@ -8,6 +8,13 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  AnimatePresence,
+  MotionConfig,
+  animate,
+  motion,
+  useReducedMotion,
+} from "motion/react";
 
 import Composer from "@/components/composer";
 import NoteCard from "@/components/note-card";
@@ -16,18 +23,22 @@ import {
   type Note,
   type Viewport,
   clampZoom,
+  findOpenPosition,
   readCanvasState,
   screenToWorld,
   writeCanvasState,
 } from "@/lib/notes";
 
 const NOTE_WIDTH = 240;
+const DEFAULT_NOTE_HEIGHT = 50;
 const GRID_SIZE = 24;
 
 type Draft = {
-  id: number;
+  id: string;
   x: number;
   y: number;
+  originX: number;
+  originY: number;
   initialText: string;
 };
 
@@ -49,18 +60,19 @@ function isTextInput(target: EventTarget | null) {
 
 export default function Canvas() {
   const rootRef = useRef<HTMLDivElement>(null);
-  const pointerRef = useRef({ x: 0, y: 0, seen: false });
+  const zoomPopoverRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<PanSession | null>(null);
   const spacePressedRef = useRef(false);
-  const draftCounterRef = useRef(0);
-  const settleTimerRef = useRef<number | null>(null);
+  const noteHeightsRef = useRef(new Map<string, number>());
+  const composerHeightRef = useRef(DEFAULT_NOTE_HEIGHT);
+  const resetAnimationRef = useRef<ReturnType<typeof animate> | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
   const [viewport, setViewport] = useState<Viewport>(DEFAULT_VIEWPORT);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [settlingId, setSettlingId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
+  const shouldReduceMotion = useReducedMotion();
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -83,11 +95,7 @@ export default function Canvas() {
   }, [loaded, notes, viewport]);
 
   useEffect(() => {
-    return () => {
-      if (settleTimerRef.current) {
-        window.clearTimeout(settleTimerRef.current);
-      }
-    };
+    return () => resetAnimationRef.current?.stop();
   }, []);
 
   const beginDraft = useCallback(
@@ -96,18 +104,20 @@ export default function Canvas() {
       if (!root || draft) return;
 
       const rect = root.getBoundingClientRect();
-      const hasPointer = pointerRef.current.seen;
-      const screenPoint = hasPointer
-        ? { x: pointerRef.current.x, y: pointerRef.current.y }
-        : { x: rect.width / 2, y: rect.height / 2 };
+      const screenPoint = { x: rect.width / 2, y: rect.height / 2 };
       const worldPoint = screenToWorld(screenPoint, viewport);
+      const origin = {
+        x: worldPoint.x - NOTE_WIDTH / 2,
+        y: worldPoint.y - DEFAULT_NOTE_HEIGHT / 2,
+      };
 
-      draftCounterRef.current += 1;
+      composerHeightRef.current = DEFAULT_NOTE_HEIGHT;
       setSelectedId(null);
       setDraft({
-        id: draftCounterRef.current,
-        x: worldPoint.x - (hasPointer ? 20 : NOTE_WIDTH / 2),
-        y: worldPoint.y - (hasPointer ? 18 : 56),
+        id: window.crypto.randomUUID(),
+        ...origin,
+        originX: origin.x,
+        originY: origin.y,
         initialText,
       });
     },
@@ -116,6 +126,11 @@ export default function Canvas() {
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      if (
+        event.target instanceof HTMLElement &&
+        event.target.closest(".zoom-controls")
+      ) return;
+
       if (event.key === " " && !isTextInput(event.target)) {
         spacePressedRef.current = true;
         event.preventDefault();
@@ -151,15 +166,6 @@ export default function Canvas() {
         return;
       }
 
-      if (
-        event.key.length === 1 &&
-        !event.metaKey &&
-        !event.ctrlKey &&
-        !event.altKey
-      ) {
-        event.preventDefault();
-        beginDraft(event.key);
-      }
     }
 
     function handleKeyUp(event: KeyboardEvent) {
@@ -187,7 +193,12 @@ export default function Canvas() {
     if (!root) return;
 
     function handleWheel(event: WheelEvent) {
+      if (
+        event.target instanceof HTMLElement &&
+        event.target.closest(".zoom-controls")
+      ) return;
       event.preventDefault();
+      resetAnimationRef.current?.stop();
 
       if (event.ctrlKey || event.metaKey) {
         setViewport((current) => {
@@ -220,10 +231,12 @@ export default function Canvas() {
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
     const target = event.target as HTMLElement;
+    if (target.closest(".zoom-controls")) return;
     const onNote = Boolean(target.closest(".note-card, .note-composer"));
     if (onNote && !spacePressedRef.current) return;
 
     setSelectedId(null);
+    resetAnimationRef.current?.stop();
     panRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -244,12 +257,6 @@ export default function Canvas() {
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
-    pointerRef.current = {
-      x: event.clientX,
-      y: event.clientY,
-      seen: true,
-    };
-
     const pan = panRef.current;
     if (!pan || pan.pointerId !== event.pointerId) return;
 
@@ -278,13 +285,25 @@ export default function Canvas() {
     }
 
     const now = new Date().toISOString();
-    const id = window.crypto.randomUUID();
     const z = notes.reduce((highest, note) => Math.max(highest, note.z), 0) + 1;
+    const position = findOpenPosition(
+      {
+        x: draft.x,
+        y: draft.y,
+        width: NOTE_WIDTH,
+        height: composerHeightRef.current,
+      },
+      notes.map((note) => ({
+        x: note.x,
+        y: note.y,
+        width: NOTE_WIDTH,
+        height: noteHeightsRef.current.get(note.id) ?? DEFAULT_NOTE_HEIGHT,
+      })),
+    );
     const note: Note = {
-      id,
+      id: draft.id,
       text: trimmed,
-      x: draft.x,
-      y: draft.y,
+      ...position,
       z,
       createdAt: now,
       updatedAt: now,
@@ -292,14 +311,7 @@ export default function Canvas() {
 
     setNotes((current) => [...current, note]);
     setDraft(null);
-    setSelectedId(id);
-    setSettlingId(id);
-    if (settleTimerRef.current) {
-      window.clearTimeout(settleTimerRef.current);
-    }
-    settleTimerRef.current = window.setTimeout(() => {
-      setSettlingId(null);
-    }, 240);
+    setSelectedId(note.id);
   }
 
   function updateNotePosition(id: string, x: number, y: number) {
@@ -340,6 +352,48 @@ export default function Canvas() {
     });
   }
 
+  const measureNote = useCallback((id: string, height: number) => {
+    noteHeightsRef.current.set(id, height);
+  }, []);
+
+  const measureComposer = useCallback((height: number) => {
+    composerHeightRef.current = height;
+  }, []);
+
+  function resetViewport() {
+    zoomPopoverRef.current?.hidePopover();
+    resetAnimationRef.current?.stop();
+    const root = rootRef.current;
+    if (!root) return;
+    const rect = root.getBoundingClientRect();
+    const center = { x: rect.width / 2, y: rect.height / 2 };
+    const worldCenter = screenToWorld(center, viewport);
+    const target = {
+      x: center.x - worldCenter.x,
+      y: center.y - worldCenter.y,
+      zoom: 1,
+    };
+
+    if (shouldReduceMotion) {
+      setViewport(target);
+      return;
+    }
+
+    const start = viewport;
+    resetAnimationRef.current = animate(0, 1, {
+      duration: 0.32,
+      ease: [0.32, 0.72, 0, 1],
+      onUpdate: (progress) => {
+        setViewport({
+          x: start.x + (target.x - start.x) * progress,
+          y: start.y + (target.y - start.y) * progress,
+          zoom:
+            start.zoom + (target.zoom - start.zoom) * progress,
+        });
+      },
+    });
+  }
+
   const gridOpacity = Math.min(0.22, Math.max(0.07, viewport.zoom * 0.18));
   const gridStyle = {
     "--grid-size": `${GRID_SIZE * viewport.zoom}px`,
@@ -349,68 +403,102 @@ export default function Canvas() {
   } as CSSProperties;
 
   return (
-    <main
-      ref={rootRef}
-      className={`canvas-shell${isPanning ? " is-panning" : ""}`}
-      aria-label="Unfold notes canvas"
-      aria-busy={!loaded}
-      onPointerDownCapture={handlePointerDownCapture}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={finishPan}
-      onPointerCancel={finishPan}
+    <MotionConfig
+      reducedMotion="user"
+      transition={{ type: "spring", duration: 0.32, bounce: 0 }}
     >
-      <div className="canvas-grid" style={gridStyle} aria-hidden="true" />
-      <div
-        className="canvas-world"
-        style={{
-          transform: `translate3d(${viewport.x}px, ${viewport.y}px, 0) scale(${viewport.zoom})`,
-        }}
+      <main
+        ref={rootRef}
+        className={`canvas-shell${isPanning ? " is-panning" : ""}`}
+        aria-label="Unfold notes canvas"
+        aria-busy={!loaded}
+        onPointerDownCapture={handlePointerDownCapture}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={finishPan}
+        onPointerCancel={finishPan}
       >
-        {notes.map((note) => (
-          <NoteCard
-            key={note.id}
-            note={note}
-            zoom={viewport.zoom}
-            selected={note.id === selectedId}
-            settling={note.id === settlingId}
-            onSelect={bringNoteToFront}
-            onMove={updateNotePosition}
-            onChange={updateNoteText}
-          />
-        ))}
-        {draft ? (
-          <Composer
-            key={draft.id}
-            x={draft.x}
-            y={draft.y}
-            initialText={draft.initialText}
-            onCommit={commitDraft}
-            onCancel={() => setDraft(null)}
-          />
-        ) : null}
-      </div>
+        <div className="canvas-grid" style={gridStyle} aria-hidden="true" />
+        <div
+          className="canvas-world"
+          style={{
+            transform: `translate3d(${viewport.x}px, ${viewport.y}px, 0) scale(${viewport.zoom})`,
+          }}
+        >
+          <AnimatePresence>
+            {notes.map((note) => (
+              <NoteCard
+                key={note.id}
+                note={note}
+                zoom={viewport.zoom}
+                selected={note.id === selectedId}
+                onSelect={bringNoteToFront}
+                onMove={updateNotePosition}
+                onChange={updateNoteText}
+                onMeasure={measureNote}
+              />
+            ))}
+            {draft ? (
+              <Composer
+                key={draft.id}
+                id={draft.id}
+                x={draft.x}
+                y={draft.y}
+                originX={draft.originX}
+                originY={draft.originY}
+                initialText={draft.initialText}
+                onCommit={commitDraft}
+                onCancel={() => setDraft(null)}
+                onMeasure={measureComposer}
+              />
+            ) : null}
+          </AnimatePresence>
+        </div>
 
-      <div
-        className={`canvas-empty${loaded && notes.length === 0 && !draft ? " is-visible" : ""}`}
-        aria-hidden={notes.length > 0 || Boolean(draft)}
-      >
-        <span>Start typing to unfold a thought</span>
-        <kbd>⌘K</kbd>
-      </div>
+        <AnimatePresence>
+          {loaded && notes.length === 0 && !draft ? (
+            <motion.div
+              key="empty"
+              className="canvas-empty"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 4, transition: { duration: 0.14 } }}
+            >
+              <span>Unfold a thought</span>
+              <kbd>⌘K</kbd>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
 
-      <div className="canvas-wordmark" aria-hidden="true">
-        unfold
-      </div>
-      <button
-        className="zoom-reset"
-        type="button"
-        title="Reset view"
-        aria-label={`Reset view, current zoom ${Math.round(viewport.zoom * 100)} percent`}
-        onClick={() => setViewport(DEFAULT_VIEWPORT)}
-      >
-        {Math.round(viewport.zoom * 100)}%
-      </button>
-    </main>
+        <div className="canvas-wordmark" aria-hidden="true">
+          unfold
+        </div>
+        <div className="zoom-controls">
+          <div
+            ref={zoomPopoverRef}
+            id="zoom-popover"
+            className="zoom-popover"
+            popover="auto"
+            role="dialog"
+            aria-label="Zoom options"
+          >
+            <button type="button" onClick={resetViewport}>
+              <span>Reset zoom</span>
+              <span className="zoom-popover-value">100%</span>
+            </button>
+          </div>
+          <button
+            className="zoom-reset"
+            type="button"
+            title="Zoom options"
+            aria-label={`Zoom options, current zoom ${Math.round(viewport.zoom * 100)} percent`}
+            aria-haspopup="dialog"
+            popoverTarget="zoom-popover"
+          >
+            {Math.round(viewport.zoom * 100)}%
+          </button>
+        </div>
+      </main>
+    </MotionConfig>
   );
 }

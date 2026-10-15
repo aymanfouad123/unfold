@@ -19,6 +19,13 @@ export type CanvasState = {
   viewport: Viewport;
 };
 
+export type CanvasRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 export const STORAGE_KEY = "unfold-canvas-v1";
 export const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1 };
 export const MIN_ZOOM = 0.4;
@@ -120,4 +127,37 @@ export function worldToScreen(
     x: point.x * viewport.zoom + viewport.x,
     y: point.y * viewport.zoom + viewport.y,
   };
+}
+
+function rectsOverlap(a: CanvasRect, b: CanvasRect, gap: number) {
+  return (
+    a.x < b.x + b.width + gap &&
+    a.x + a.width + gap > b.x &&
+    a.y < b.y + b.height + gap &&
+    a.y + a.height + gap > b.y
+  );
+}
+
+export function findOpenPosition(
+  candidate: CanvasRect,
+  occupied: CanvasRect[],
+  gap = 12,
+) {
+  let position = { x: candidate.x, y: candidate.y };
+
+  for (let attempt = 0; attempt <= occupied.length; attempt += 1) {
+    const current = { ...candidate, ...position };
+    const collisions = occupied.filter((rect) =>
+      rectsOverlap(current, rect, gap),
+    );
+
+    if (collisions.length === 0) return position;
+
+    position = {
+      x: candidate.x,
+      y: Math.max(...collisions.map((rect) => rect.y + rect.height + gap)),
+    };
+  }
+
+  return position;
 }

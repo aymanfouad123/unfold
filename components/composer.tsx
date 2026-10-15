@@ -4,22 +4,32 @@ import {
   useRef,
   useState,
 } from "react";
+import { motion } from "motion/react";
 
 type ComposerProps = {
+  id: string;
   x: number;
   y: number;
+  originX: number;
+  originY: number;
   initialText: string;
   onCommit: (text: string) => void;
   onCancel: () => void;
+  onMeasure: (height: number) => void;
 };
 
 export default function Composer({
+  id,
   x,
   y,
+  originX,
+  originY,
   initialText,
   onCommit,
   onCancel,
+  onMeasure,
 }: ComposerProps) {
+  const composerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const finishedRef = useRef(false);
   const [text, setText] = useState(initialText);
@@ -35,8 +45,20 @@ export default function Composer({
     const textarea = textareaRef.current;
     if (!textarea) return;
     textarea.style.height = "0";
-    textarea.style.height = `${Math.max(64, textarea.scrollHeight)}px`;
+    textarea.style.height = `${Math.max(21, textarea.scrollHeight)}px`;
   }, [text]);
+
+  useEffect(() => {
+    const composer = composerRef.current;
+    if (!composer) return;
+
+    const reportHeight = () => onMeasure(composer.offsetHeight);
+    reportHeight();
+
+    const observer = new ResizeObserver(reportHeight);
+    observer.observe(composer);
+    return () => observer.disconnect();
+  }, [onMeasure]);
 
   function commit() {
     if (finishedRef.current) return;
@@ -64,9 +86,24 @@ export default function Composer({
   }
 
   return (
-    <div
+    <motion.div
+      ref={composerRef}
       className="note-composer"
       style={{ left: x, top: y }}
+      layoutId={`note-${id}`}
+      initial={{
+        opacity: 0,
+        scale: 0.985,
+        x: originX - x,
+        y: originY - y + 4,
+      }}
+      animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
+      exit={{
+        opacity: 0,
+        scale: 0.985,
+        y: 4,
+        transition: { duration: 0.12 },
+      }}
       onPointerDown={(event) => event.stopPropagation()}
     >
       <textarea
@@ -80,6 +117,9 @@ export default function Composer({
         onKeyDown={handleKeyDown}
         onBlur={commit}
       />
-    </div>
+      <span className={`composer-submit${text.trim() ? " is-visible" : ""}`}>
+        ↵
+      </span>
+    </motion.div>
   );
 }
