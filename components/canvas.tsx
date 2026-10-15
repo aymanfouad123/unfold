@@ -18,13 +18,12 @@ import {
 
 import {
   ReactFlow,
-  ViewportPortal,
   type Node,
   type NodeProps,
   type NodeChange,
 } from "@xyflow/react";
 
-import Composer from "@/components/composer";
+import CommandPalette from "@/components/command-palette";
 import NoteCard from "@/components/note-card";
 import {
   DEFAULT_VIEWPORT,
@@ -41,15 +40,6 @@ import {
 const NOTE_WIDTH = 240;
 const DEFAULT_NOTE_HEIGHT = 50;
 const GRID_SIZE = 24;
-
-type Draft = {
-  id: string;
-  x: number;
-  y: number;
-  originX: number;
-  originY: number;
-  initialText: string;
-};
 
 type NoteNode = Node<
   {
@@ -90,11 +80,12 @@ export default function Canvas() {
   const [spacePressed, setSpacePressed] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const noteHeightsRef = useRef(new Map<string, number>());
-  const composerHeightRef = useRef(DEFAULT_NOTE_HEIGHT);
-  const resetAnimationRef = useRef<ReturnType<typeof animate> | null>(null);
+  const viewportAnimationRef = useRef<ReturnType<typeof animate> | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
   const [viewport, setViewport] = useState<Viewport>(DEFAULT_VIEWPORT);
-  const [draft, setDraft] = useState<Draft | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteSession, setPaletteSession] = useState(0);
+  const [paletteText, setPaletteText] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const shouldReduceMotion = useReducedMotion();
@@ -120,39 +111,32 @@ export default function Canvas() {
   }, [loaded, notes, viewport]);
 
   useEffect(() => {
-    return () => resetAnimationRef.current?.stop();
+    return () => viewportAnimationRef.current?.stop();
   }, []);
 
-  const beginDraft = useCallback(
-    (initialText = "") => {
-      const root = rootRef.current;
-      if (!root || draft || !loaded || draggingId) return;
-
-      const rect = root.getBoundingClientRect();
-      const screenPoint = { x: rect.width / 2, y: rect.height / 2 };
-      const worldPoint = screenToWorld(screenPoint, viewport);
-      const origin = {
-        x: worldPoint.x - NOTE_WIDTH / 2,
-        y: worldPoint.y - DEFAULT_NOTE_HEIGHT / 2,
-      };
-
-      composerHeightRef.current = DEFAULT_NOTE_HEIGHT;
-      resetAnimationRef.current?.stop();
-      setSpacePressed(false);
-      setSelectedId(null);
-      setDraft({
-        id: window.crypto.randomUUID(),
-        ...origin,
-        originX: origin.x,
-        originY: origin.y,
-        initialText,
-      });
-    },
-    [draft, viewport, loaded, draggingId],
-  );
+  const openPalette = useCallback(() => {
+    if (!loaded || draggingId) return;
+    viewportAnimationRef.current?.stop();
+    zoomPopoverRef.current?.hidePopover();
+    setSpacePressed(false);
+    setSelectedId(null);
+    setPaletteSession((current) => current + 1);
+    setPaletteOpen(true);
+  }, [loaded, draggingId]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      if (event.isComposing || paletteOpen) return;
+      if (
+        event.key.toLowerCase() === "k" &&
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        openPalette();
+        return;
+      }
+
       if (
         event.target instanceof HTMLElement &&
         event.target.closest(".zoom-controls")
@@ -165,16 +149,6 @@ export default function Canvas() {
       }
 
       if (isTextInput(event.target)) return;
-
-      if (
-        event.key.toLowerCase() === "k" &&
-        (event.metaKey || event.ctrlKey) &&
-        !event.altKey
-      ) {
-        event.preventDefault();
-        beginDraft();
-        return;
-      }
 
       if (
         (event.key === "Backspace" || event.key === "Delete") &&
@@ -212,24 +186,37 @@ export default function Canvas() {
       window.removeEventListener("keyup", handleKeyUp);
       window.removeEventListener("blur", handleWindowBlur);
     };
-  }, [beginDraft, selectedId]);
+  }, [openPalette, paletteOpen, selectedId]);
 
-  function commitDraft(text: string) {
-    if (!draft) return;
+  function createNote(text: string) {
+    setPaletteOpen(false);
+    setPaletteText("");
     const trimmed = text.trim();
-    if (!trimmed) {
-      setDraft(null);
-      return;
-    }
+    const root = rootRef.current;
+    if (!trimmed || !root) return;
+    const rect = root.getBoundingClientRect();
+    const center = screenToWorld({ x: rect.width / 2, y: rect.height / 2 }, viewport);
+
+    // Measure at the card width so long thoughts also avoid nearby notes.
+    const measurement = document.createElement("div");
+    measurement.className = "note-card";
+    measurement.style.visibility = "hidden";
+    measurement.style.pointerEvents = "none";
+    const paragraph = document.createElement("p");
+    paragraph.textContent = trimmed;
+    measurement.append(paragraph);
+    root.append(measurement);
+    const height = measurement.offsetHeight || DEFAULT_NOTE_HEIGHT;
+    measurement.remove();
 
     const now = new Date().toISOString();
     const z = notes.reduce((highest, note) => Math.max(highest, note.z), 0) + 1;
     const position = findOpenPosition(
       {
-        x: draft.x,
-        y: draft.y,
+        x: center.x - NOTE_WIDTH / 2,
+        y: center.y - height / 2,
         width: NOTE_WIDTH,
-        height: composerHeightRef.current,
+        height,
       },
       notes.map((note) => ({
         x: note.x,
@@ -239,7 +226,7 @@ export default function Canvas() {
       })),
     );
     const note: Note = {
-      id: draft.id,
+      id: window.crypto.randomUUID(),
       text: trimmed,
       ...position,
       z,
@@ -248,7 +235,6 @@ export default function Canvas() {
     };
 
     setNotes((current) => [...current, note]);
-    setDraft(null);
     setSelectedId(note.id);
   }
 
@@ -313,10 +299,6 @@ export default function Canvas() {
     noteHeightsRef.current.set(id, height);
   }, []);
 
-  const measureComposer = useCallback((height: number) => {
-    composerHeightRef.current = height;
-  }, []);
-
   const nodes = useMemo<NoteNode[]>(
     () => notes.map((note) => ({
       id: note.id,
@@ -339,22 +321,21 @@ export default function Canvas() {
     bringNoteToFront(node.id);
   }, [bringNoteToFront]);
   const handleDragStart = useCallback((_event: unknown, node: NoteNode) => {
-    resetAnimationRef.current?.stop();
+    viewportAnimationRef.current?.stop();
     setDraggingId(node.id);
     bringNoteToFront(node.id);
   }, [bringNoteToFront]);
   const handleDragStop = useCallback(() => setDraggingId(null), []);
   const handleMoveStart = useCallback((event: unknown) => {
     // Controlled viewport updates also emit callbacks with a sync marker.
-    // Only a native gesture should interrupt the reset animation.
+    // Only a native gesture should interrupt the viewport animation.
     if (event instanceof Event) {
-      resetAnimationRef.current?.stop();
+      viewportAnimationRef.current?.stop();
     }
   }, []);
 
   function resetViewport() {
     zoomPopoverRef.current?.hidePopover();
-    resetAnimationRef.current?.stop();
     const root = rootRef.current;
     if (!root) return;
     const rect = root.getBoundingClientRect();
@@ -366,13 +347,18 @@ export default function Canvas() {
       zoom: 1,
     };
 
+    animateViewportTo(target);
+  }
+
+  function animateViewportTo(target: Viewport) {
+    viewportAnimationRef.current?.stop();
     if (shouldReduceMotion) {
       setViewport(target);
       return;
     }
 
     const start = viewport;
-    resetAnimationRef.current = animate(0, 1, {
+    viewportAnimationRef.current = animate(0, 1, {
       duration: 0.32,
       ease: [0.32, 0.72, 0, 1],
       onUpdate: (progress) => {
@@ -383,6 +369,21 @@ export default function Canvas() {
             start.zoom + (target.zoom - start.zoom) * progress,
         });
       },
+    });
+  }
+
+  function openNote(id: string) {
+    const note = notes.find((note) => note.id === id);
+    const root = rootRef.current;
+    if (!note || !root) return;
+    setPaletteOpen(false);
+    bringNoteToFront(id);
+    const rect = root.getBoundingClientRect();
+    const height = noteHeightsRef.current.get(id) ?? DEFAULT_NOTE_HEIGHT;
+    animateViewportTo({
+      x: rect.width / 2 - (note.x + NOTE_WIDTH / 2) * viewport.zoom,
+      y: rect.height / 2 - (note.y + height / 2) * viewport.zoom,
+      zoom: viewport.zoom,
     });
   }
 
@@ -401,6 +402,7 @@ export default function Canvas() {
     >
       <main
         ref={rootRef}
+        tabIndex={-1}
         className="canvas-shell"
         aria-label="Unfold notes canvas"
         aria-busy={!loaded}
@@ -440,28 +442,26 @@ export default function Canvas() {
           onNodeDragStop={handleDragStop}
           onMoveStart={handleMoveStart}
           attributionPosition="top-right"
-        >
-          <ViewportPortal>
-            <AnimatePresence>
-              {draft ? (
-                <Composer
-                  key={draft.id}
-                  x={draft.x}
-                  y={draft.y}
-                  originX={draft.originX}
-                  originY={draft.originY}
-                  initialText={draft.initialText}
-                  onCommit={commitDraft}
-                  onCancel={() => setDraft(null)}
-                  onMeasure={measureComposer}
-                />
-              ) : null}
-            </AnimatePresence>
-          </ViewportPortal>
-        </ReactFlow>
+        />
 
         <AnimatePresence>
-          {loaded && notes.length === 0 && !draft ? (
+          {paletteOpen ? (
+            <CommandPalette
+              key={paletteSession}
+              notes={notes}
+              initialText={paletteText}
+              onCreate={createNote}
+              onOpenNote={openNote}
+              onClose={(text) => {
+                setPaletteText(text);
+                setPaletteOpen(false);
+              }}
+            />
+          ) : null}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {loaded && notes.length === 0 && !paletteOpen ? (
             <motion.div
               key="empty"
               className="canvas-empty"

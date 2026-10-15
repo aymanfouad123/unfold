@@ -70,6 +70,10 @@ button:focus-visible,
   user-select: none;
 }
 
+.canvas-shell:focus {
+  outline: none;
+}
+
 .canvas-shell .react-flow__pane,
 .canvas-shell .react-flow__node {
   cursor: default;
@@ -105,12 +109,7 @@ button:focus-visible,
   background: var(--background);
 }
 
-.note-composer {
-  pointer-events: all;
-}
-
-.note-card.is-editing textarea,
-.note-composer textarea {
+.note-card.is-editing textarea {
   user-select: text;
 }
 
@@ -223,8 +222,7 @@ button:focus-visible,
   line-height: 1;
 }
 
-.note-card,
-.note-composer {
+.note-card {
   position: absolute;
   width: 240px;
   border: 1px solid var(--hairline);
@@ -292,8 +290,7 @@ button:focus-visible,
   opacity: 1;
 }
 
-.note-card textarea,
-.note-composer textarea {
+.note-card textarea {
   display: block;
   width: 100%;
   min-height: 21px;
@@ -311,8 +308,7 @@ button:focus-visible,
   letter-spacing: -0.003em;
 }
 
-.note-card textarea::placeholder,
-.note-composer textarea::placeholder {
+.note-card textarea::placeholder {
   color: #797979;
   opacity: 1;
 }
@@ -325,39 +321,124 @@ button:focus-visible,
     0 0 0 1px rgb(255 255 255 / 4%);
 }
 
-.note-composer {
+.command-palette-scrim {
+  position: fixed;
+  inset: 0;
   z-index: 1000001;
-  padding: 14px 16px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 22vh 24px 24px;
+  overflow-y: auto;
+  background: rgb(0 0 0 / 10%);
+  touch-action: auto;
+}
+
+.command-palette {
+  width: 560px;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--hairline-hover);
+  border-radius: 14px;
   background: var(--panel-lifted);
   box-shadow: var(--shadow-lifted);
-  cursor: text;
 }
 
-.note-composer textarea {
-  padding-right: 18px;
+.command-palette-input {
+  display: block;
+  width: 100%;
+  min-height: 58px;
+  max-height: 30vh;
+  padding: 18px 20px;
+  overflow-y: auto;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--text);
+  caret-color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+  user-select: text;
 }
 
-.composer-submit {
-  position: absolute;
-  right: 14px;
-  bottom: 15px;
+.command-palette-input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.command-palette-separator {
+  height: 1px;
+  background: var(--hairline);
+}
+
+.command-palette-list {
+  max-height: 300px;
+  padding: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding: 6px;
+}
+
+.command-palette-section {
+  padding: 12px 12px 6px;
   color: var(--muted);
   font-size: 11px;
-  line-height: 1;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(2px);
-  transition:
-    opacity 140ms ease,
-    transform 180ms var(--ease-out);
+  line-height: 1.5;
 }
 
-.composer-submit.is-visible {
-  opacity: 0.55;
-  transform: translateY(0);
+.command-palette-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.command-palette-highlight {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 5%);
+  pointer-events: none;
+}
+
+.command-palette-row-title {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette-list > .command-palette-row > .command-palette-row-title {
+  color: var(--text);
+}
+
+.command-palette-row-meta {
+  position: relative;
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.command-palette-match {
+  background: transparent;
+  color: var(--text);
 }
 
 @media (max-width: 640px) {
+  .command-palette-scrim {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
   .canvas-wordmark {
     top: 18px;
     left: 18px;
@@ -383,8 +464,7 @@ button:focus-visible,
   .canvas-grid,
   .zoom-reset,
   .note-card,
-  .note-card time,
-  .composer-submit {
+  .note-card time {
     transition-duration: 1ms !important;
   }
 }
