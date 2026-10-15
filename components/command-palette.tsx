@@ -23,6 +23,8 @@ const dateFormatter = new Intl.DateTimeFormat("en", {
   day: "numeric",
 });
 
+const ASK_PREFIX = /^\s*(?:ask|ai)(?=\s|$)\s*/i;
+
 function matchedTitle(title: string, terms: string[]) {
   if (!terms.length) return title;
   const lower = title.toLowerCase();
@@ -59,17 +61,21 @@ export default function CommandPalette({
   const finishedRef = useRef(false);
   const requestRef = useRef<AbortController | null>(null);
   const [query, setQuery] = useState("");
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [askMode, setAskMode] = useState(false);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [answer, setAnswer] = useState("");
   const [askError, setAskError] = useState("");
   const [asking, setAsking] = useState(false);
+  const showAnswer = asking || !!answer || !!askError;
   const terms = useMemo(() => query.toLowerCase().trim().split(/\s+/).filter(Boolean), [query]);
-  const results = useMemo(() => notes
+  const results = useMemo(() => askMode ? [] : notes
     .filter((note) => terms.every((term) => note.text.toLowerCase().includes(term)))
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
-    .slice(0, terms.length ? 8 : 3), [notes, terms]);
+    .slice(0, terms.length ? 8 : 3), [notes, terms, askMode]);
   const askIndex = results.length + 1;
-  const selectedIndex = Math.min(activeIndex, askIndex);
+  const hasAskPrefix = ASK_PREFIX.test(query);
+  const selectedIndex = askMode ? askIndex : Math.min(activeIndex ?? (hasAskPrefix ? askIndex : 0), askIndex);
+  const prompt = askMode ? query.trim() : query.replace(ASK_PREFIX, "").trim();
   const optionId = (index: number) => `${id}-option-${index}`;
 
   useEffect(() => () => requestRef.current?.abort(), []);
@@ -92,7 +98,7 @@ export default function CommandPalette({
     if (!textarea) return;
     textarea.style.height = "0";
     textarea.style.height = `${textarea.scrollHeight}px`;
-  }, [query]);
+  }, [query, askMode]);
 
   useEffect(() => {
     listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
@@ -108,7 +114,8 @@ export default function CommandPalette({
   function run(index: number) {
     if (finishedRef.current) return;
     if (index === askIndex) {
-      void askNotes();
+      if (!askMode) enterAskMode();
+      void askAI(prompt);
       return;
     }
     finishedRef.current = true;
@@ -117,8 +124,8 @@ export default function CommandPalette({
     else onOpenNote(results[index - 1].id);
   }
 
-  async function askNotes() {
-    if (!query.trim() || asking || !notes.length) return;
+  async function askAI(text: string) {
+    if (!text || asking || (requestRef.current && !requestRef.current.signal.aborted)) return;
     requestRef.current?.abort();
     const controller = new AbortController();
     requestRef.current = controller;
@@ -131,9 +138,8 @@ export default function CommandPalette({
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify({
-          mode: "notes",
-          text: JSON.stringify(notes.map(({ text, updatedAt }) => ({ text, updatedAt }))),
-          messages: [{ role: "user", content: query.trim() }],
+          mode: "ask",
+          messages: [{ role: "user", content: text }],
         }),
       });
       const data = await response.json();
@@ -144,17 +150,32 @@ export default function CommandPalette({
     } catch {
       if (!controller.signal.aborted) setAskError("Couldn't reach AI. Try asking again.");
     } finally {
-      if (!controller.signal.aborted) setAsking(false);
+      if (!controller.signal.aborted) {
+        requestRef.current = null;
+        setAsking(false);
+      }
     }
   }
 
   function changeQuery(text: string) {
     requestRef.current?.abort();
     setQuery(text);
-    setActiveIndex(0);
+    setActiveIndex(null);
     setAnswer("");
     setAskError("");
     setAsking(false);
+  }
+
+  function enterAskMode() {
+    changeQuery(query.replace(ASK_PREFIX, ""));
+    setAskMode(true);
+    textareaRef.current?.focus();
+  }
+
+  function exitAskMode() {
+    changeQuery(query);
+    setAskMode(false);
+    textareaRef.current?.focus();
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -164,6 +185,7 @@ export default function CommandPalette({
       event.stopPropagation();
       close();
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (askMode) return;
       event.preventDefault();
       setActiveIndex(Math.max(0, Math.min(askIndex, selectedIndex + (event.key === "ArrowDown" ? 1 : -1))));
     } else if (event.key === "Enter" && !event.shiftKey) {
@@ -171,7 +193,12 @@ export default function CommandPalette({
       run(selectedIndex);
     } else if (event.key === "Tab") {
       event.preventDefault();
+      if (askMode && event.shiftKey) exitAskMode();
+      else if (!askMode && !event.shiftKey && selectedIndex === askIndex) enterAskMode();
       textareaRef.current?.focus();
+    } else if (event.key === "Backspace" && askMode && !query) {
+      event.preventDefault();
+      exitAskMode();
     }
   }
 
@@ -183,8 +210,8 @@ export default function CommandPalette({
         id={optionId(index)}
         role="option"
         aria-selected={active}
-        aria-disabled={index === askIndex ? !query.trim() || !notes.length || asking : undefined}
-        className="command-palette-row"
+        aria-disabled={index === askIndex ? (askMode && !prompt) || asking : undefined}
+        className={`command-palette-row${index === askIndex ? " is-ask" : ""}`}
         onPointerMove={() => setActiveIndex(index)}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => run(index)}
@@ -209,47 +236,71 @@ export default function CommandPalette({
         className="command-palette"
         role="dialog"
         aria-modal="true"
-        aria-label="Create, find, or ask your notes"
+        aria-label="Create or find notes, or ask AI"
         onKeyDown={handleKeyDown}
         initial={{ opacity: 0, scale: 0.985, y: 4 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, transition: { duration: 0.12 } }}
       >
-        <textarea
-          ref={textareaRef}
-          className="command-palette-input"
-          role="combobox"
-          aria-label="Write, find, or ask your notes"
-          aria-expanded="true"
-          aria-autocomplete="list"
-          aria-controls={`${id}-list`}
-          aria-activedescendant={optionId(selectedIndex)}
-          placeholder="Unfold a thought…"
-          rows={1}
-          spellCheck
-          value={query}
-          onChange={(event) => changeQuery(event.target.value)}
-        />
-        <div className="command-palette-separator" />
-        <LayoutGroup id={id}>
-          <div ref={listRef} id={`${id}-list`} className="command-palette-list" role="listbox" aria-label="Note actions">
-            {row(0, "New note", "↵")}
-            <div role="group" aria-labelledby={`${id}-notes`}>
-              <div id={`${id}-notes`} className="command-palette-section">notes</div>
-              {results.length === 0 ? <div className="command-palette-hint">{terms.length ? "No matching notes" : "Your notes will appear here"}</div> : null}
-              {results.map((note, index) => row(index + 1,
-                matchedTitle(note.text.split(/\r?\n/)[0], terms),
-                <time dateTime={note.updatedAt}>{dateFormatter.format(new Date(note.updatedAt))}</time>))}
-            </div>
-            <div role="group" aria-labelledby={`${id}-ask`}>
-              <div id={`${id}-ask`} className="command-palette-section">ask</div>
-              {row(askIndex, "Ask your notes", asking ? "Thinking…" : "AI")}
-            </div>
-          </div>
-        </LayoutGroup>
-        {asking || answer || askError ? (
+        <div className="command-palette-input-row">
+          {askMode ? (
+            <motion.button
+              type="button"
+              className="command-palette-ask-pill"
+              onClick={exitAskMode}
+              aria-label="Exit Ask mode"
+              title="Exit Ask mode"
+              initial={{ opacity: 0, scale: 0.94 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.16 }}
+            >
+              Ask <span aria-hidden="true">×</span>
+            </motion.button>
+          ) : null}
+          <textarea
+            ref={textareaRef}
+            className="command-palette-input"
+            role="combobox"
+            aria-label={askMode ? "Ask AI" : "Write, find, or ask AI"}
+            aria-expanded={!showAnswer}
+            aria-autocomplete={showAnswer ? undefined : "list"}
+            aria-controls={showAnswer ? undefined : `${id}-list`}
+            aria-activedescendant={showAnswer ? undefined : optionId(selectedIndex)}
+            placeholder={askMode ? "Ask anything…" : "Unfold a thought…"}
+            rows={1}
+            spellCheck
+            value={query}
+            onChange={(event) => changeQuery(event.target.value)}
+          />
+        </div>
+        {!showAnswer ? (
+          <>
+            <div className="command-palette-separator" />
+            <LayoutGroup id={id}>
+              <div ref={listRef} id={`${id}-list`} className="command-palette-list" role="listbox" aria-label="Note actions">
+                {!askMode ? (
+                  <>
+                    {row(0, "New note", "↵")}
+                    <div role="group" aria-labelledby={`${id}-notes`}>
+                      <div id={`${id}-notes`} className="command-palette-section">notes</div>
+                      {results.length === 0 ? <div className="command-palette-hint">{terms.length ? "No matching notes" : "Your notes will appear here"}</div> : null}
+                      {results.map((note, index) => row(index + 1,
+                        matchedTitle(note.text.split(/\r?\n/)[0], terms),
+                        <time dateTime={note.updatedAt}>{dateFormatter.format(new Date(note.updatedAt))}</time>))}
+                    </div>
+                  </>
+                ) : null}
+                <div role="group" aria-labelledby={`${id}-ask`}>
+                  <div id={`${id}-ask`} className="command-palette-section">ask</div>
+                  {row(askIndex, "Ask AI", askMode ? "↵ Send" : hasAskPrefix ? <><kbd>Tab</kbd> to ask</> : "AI")}
+                </div>
+              </div>
+            </LayoutGroup>
+          </>
+        ) : null}
+        {showAnswer ? (
           <div className="command-palette-answer" role="status" aria-live="polite" aria-busy={asking}>
-            {asking ? "Thinking about your notes…" : askError || answer}
+            {asking ? "Thinking…" : askError || answer}
           </div>
         ) : null}
       </motion.div>

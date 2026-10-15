@@ -337,6 +337,9 @@ button:focus-visible,
 }
 
 .command-palette {
+  --ask-background: #173c69;
+  --ask-border: #315f97;
+  --ask-text: #d9eaff;
   display: flex;
   flex-direction: column;
   max-height: calc(58dvh + 14px);
@@ -349,13 +352,48 @@ button:focus-visible,
   box-shadow: var(--shadow-lifted);
 }
 
+.command-palette-input-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 17px 20px;
+}
+
+.command-palette-ask-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  min-height: 24px;
+  padding: 2px 10px;
+  border: 1px solid var(--ask-border);
+  border-radius: 999px;
+  background: var(--ask-background);
+  color: var(--ask-text);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 7%), 0 0 14px rgb(35 91 161 / 12%);
+  font-size: 12px;
+  line-height: 18px;
+  transition: background-color 140ms ease, border-color 140ms ease, box-shadow 180ms ease;
+}
+
+.command-palette-ask-pill span {
+  color: #9cbce3;
+}
+
+.command-palette-ask-pill:hover {
+  border-color: #4276b4;
+  background: #204c80;
+}
+
 .command-palette-input {
   display: block;
   width: 100%;
-  min-height: 58px;
+  min-height: 24px;
   max-height: 24dvh;
-  flex-shrink: 0;
-  padding: 18px 20px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
   overflow-y: auto;
   border: 0;
   outline: none;
@@ -364,7 +402,7 @@ button:focus-visible,
   color: var(--text);
   caret-color: var(--text);
   font-size: 15px;
-  line-height: 1.5;
+  line-height: 24px;
   user-select: text;
 }
 
@@ -413,6 +451,23 @@ button:focus-visible,
   border-radius: 8px;
   background: rgb(255 255 255 / 5%);
   pointer-events: none;
+}
+
+.command-palette-row.is-ask .command-palette-highlight {
+  background: var(--ask-background);
+  box-shadow: inset 0 0 0 1px var(--ask-border);
+}
+
+.command-palette-row.is-ask[aria-selected="true"] .command-palette-row-title,
+.command-palette-row.is-ask[aria-selected="true"] .command-palette-row-meta {
+  color: var(--ask-text);
+}
+
+.command-palette-row-meta kbd {
+  padding: 1px 4px;
+  border: 1px solid rgb(217 234 255 / 25%);
+  border-radius: 4px;
+  font: inherit;
 }
 
 .command-palette-row-title {
