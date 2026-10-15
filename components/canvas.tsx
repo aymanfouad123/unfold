@@ -82,6 +82,9 @@ export default function Canvas() {
   const noteHeightsRef = useRef(new Map<string, number>());
   const viewportAnimationRef = useRef<ReturnType<typeof animate> | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
+  const [nodeMeasurements, setNodeMeasurements] = useState<
+    Record<string, NonNullable<NoteNode["measured"]>>
+  >({});
   const [viewport, setViewport] = useState<Viewport>(DEFAULT_VIEWPORT);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteSession, setPaletteSession] = useState(0);
@@ -239,6 +242,25 @@ export default function Canvas() {
   }
 
   const handleNodesChange = useCallback((changes: NodeChange<NoteNode>[]) => {
+    const dimensions = changes.filter(
+      (change) => change.type === "dimensions" && change.dimensions,
+    );
+    if (dimensions.length) {
+      setNodeMeasurements((current) => {
+        let next = current;
+        for (const change of dimensions) {
+          if (change.type !== "dimensions" || !change.dimensions) continue;
+          const measured = current[change.id];
+          if (
+            measured?.width === change.dimensions.width &&
+            measured?.height === change.dimensions.height
+          ) continue;
+          if (next === current) next = { ...current };
+          next[change.id] = change.dimensions;
+        }
+        return next;
+      });
+    }
     for (const change of changes) {
       if (change.type === "select") {
         setSelectedId((current) =>
@@ -304,6 +326,8 @@ export default function Canvas() {
       id: note.id,
       type: "note",
       position: { x: note.x, y: note.y },
+      // Controlled updates must retain dimensions so React Flow keeps nodes visible.
+      measured: nodeMeasurements[note.id],
       selected: note.id === selectedId,
       zIndex: note.z,
       data: {
@@ -313,7 +337,7 @@ export default function Canvas() {
         onSelect: bringNoteToFront,
       },
     })),
-    [notes, selectedId, updateNoteText, measureNote, bringNoteToFront],
+    [notes, nodeMeasurements, selectedId, updateNoteText, measureNote, bringNoteToFront],
   );
 
   const handlePaneClick = useCallback(() => setSelectedId(null), []);

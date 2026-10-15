@@ -80,7 +80,9 @@ button:focus-visible,
 }
 
 .canvas-shell:has(.react-flow__pane.dragging),
-.canvas-shell:has(.react-flow__pane.dragging) * {
+.canvas-shell:has(.react-flow__pane.dragging) *,
+.canvas-shell:has(.react-flow__node.dragging),
+.canvas-shell:has(.react-flow__node.dragging) * {
   cursor: grabbing;
 }
 
