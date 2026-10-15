@@ -88,7 +88,6 @@ export default function Canvas() {
   const [viewport, setViewport] = useState<Viewport>(DEFAULT_VIEWPORT);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteSession, setPaletteSession] = useState(0);
-  const [paletteText, setPaletteText] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const shouldReduceMotion = useReducedMotion();
@@ -193,7 +192,6 @@ export default function Canvas() {
 
   function createNote(text: string) {
     setPaletteOpen(false);
-    setPaletteText("");
     const trimmed = text.trim();
     const root = rootRef.current;
     if (!trimmed || !root) return;
@@ -473,13 +471,9 @@ export default function Canvas() {
             <CommandPalette
               key={paletteSession}
               notes={notes}
-              initialText={paletteText}
               onCreate={createNote}
               onOpenNote={openNote}
-              onClose={(text) => {
-                setPaletteText(text);
-                setPaletteOpen(false);
-              }}
+              onClose={() => setPaletteOpen(false)}
             />
           ) : null}
         </AnimatePresence>

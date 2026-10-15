@@ -13,10 +13,9 @@ import type { Note } from "@/lib/notes";
 
 type CommandPaletteProps = {
   notes: Note[];
-  initialText: string;
   onCreate: (text: string) => void;
   onOpenNote: (id: string) => void;
-  onClose: (text: string) => void;
+  onClose: () => void;
 };
 
 const dateFormatter = new Intl.DateTimeFormat("en", {
@@ -49,7 +48,6 @@ function matchedTitle(title: string, terms: string[]) {
 
 export default function CommandPalette({
   notes,
-  initialText,
   onCreate,
   onOpenNote,
   onClose,
@@ -60,7 +58,7 @@ export default function CommandPalette({
   const listRef = useRef<HTMLDivElement>(null);
   const finishedRef = useRef(false);
   const requestRef = useRef<AbortController | null>(null);
-  const [query, setQuery] = useState(initialText);
+  const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [answer, setAnswer] = useState("");
   const [askError, setAskError] = useState("");
@@ -104,7 +102,7 @@ export default function CommandPalette({
     if (finishedRef.current) return;
     finishedRef.current = true;
     requestRef.current?.abort();
-    onClose(query);
+    onClose();
   }
 
   function run(index: number) {
