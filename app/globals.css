@@ -70,8 +70,13 @@ button:focus-visible,
   user-select: none;
 }
 
-.canvas-shell.is-panning,
-.canvas-shell.is-panning * {
+.canvas-shell .react-flow__pane,
+.canvas-shell .react-flow__node {
+  cursor: default;
+}
+
+.canvas-shell:has(.react-flow__pane.dragging),
+.canvas-shell:has(.react-flow__pane.dragging) * {
   cursor: grabbing;
 }
 
@@ -86,13 +91,27 @@ button:focus-visible,
   transition: opacity 160ms ease;
 }
 
-.canvas-world {
-  position: absolute;
-  inset: 0 auto auto 0;
-  width: 0;
-  height: 0;
-  transform-origin: 0 0;
-  will-change: transform;
+/* React Flow owns positioning; card animation stays inside its wrapper. */
+.react-flow__node-note .note-card {
+  position: relative;
+}
+
+.react-flow__node-note:focus-visible {
+  outline: none;
+}
+
+.react-flow__attribution {
+  opacity: 0.45;
+  background: var(--background);
+}
+
+.note-composer {
+  pointer-events: all;
+}
+
+.note-card.is-editing textarea,
+.note-composer textarea {
+  user-select: text;
 }
 
 .canvas-wordmark,

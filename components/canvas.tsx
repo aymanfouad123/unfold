@@ -2,9 +2,9 @@
 
 import {
   type CSSProperties,
-  type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -16,13 +16,22 @@ import {
   useReducedMotion,
 } from "motion/react";
 
+import {
+  ReactFlow,
+  ViewportPortal,
+  type Node,
+  type NodeProps,
+  type NodeChange,
+} from "@xyflow/react";
+
 import Composer from "@/components/composer";
 import NoteCard from "@/components/note-card";
 import {
   DEFAULT_VIEWPORT,
   type Note,
   type Viewport,
-  clampZoom,
+  MIN_ZOOM,
+  MAX_ZOOM,
   findOpenPosition,
   readCanvasState,
   screenToWorld,
@@ -42,13 +51,30 @@ type Draft = {
   initialText: string;
 };
 
-type PanSession = {
-  pointerId: number;
-  startX: number;
-  startY: number;
-  viewportX: number;
-  viewportY: number;
-};
+type NoteNode = Node<
+  {
+    note: Note;
+    onChange: (id: string, text: string) => void;
+    onMeasure: (id: string, height: number) => void;
+    onSelect: (id: string) => void;
+  },
+  "note"
+>;
+
+function CanvasNote({ data, selected, dragging }: NodeProps<NoteNode>) {
+  return (
+    <NoteCard
+      note={data.note}
+      selected={selected}
+      dragging={dragging}
+      onSelect={data.onSelect}
+      onChange={data.onChange}
+      onMeasure={data.onMeasure}
+    />
+  );
+}
+
+const nodeTypes = { note: CanvasNote };
 
 function isTextInput(target: EventTarget | null) {
   return (
@@ -61,8 +87,8 @@ function isTextInput(target: EventTarget | null) {
 export default function Canvas() {
   const rootRef = useRef<HTMLDivElement>(null);
   const zoomPopoverRef = useRef<HTMLDivElement>(null);
-  const panRef = useRef<PanSession | null>(null);
-  const spacePressedRef = useRef(false);
+  const [spacePressed, setSpacePressed] = useState(false);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
   const noteHeightsRef = useRef(new Map<string, number>());
   const composerHeightRef = useRef(DEFAULT_NOTE_HEIGHT);
   const resetAnimationRef = useRef<ReturnType<typeof animate> | null>(null);
@@ -71,7 +97,6 @@ export default function Canvas() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const [isPanning, setIsPanning] = useState(false);
   const shouldReduceMotion = useReducedMotion();
 
   useEffect(() => {
@@ -101,7 +126,7 @@ export default function Canvas() {
   const beginDraft = useCallback(
     (initialText = "") => {
       const root = rootRef.current;
-      if (!root || draft) return;
+      if (!root || draft || !loaded || draggingId) return;
 
       const rect = root.getBoundingClientRect();
       const screenPoint = { x: rect.width / 2, y: rect.height / 2 };
@@ -112,6 +137,8 @@ export default function Canvas() {
       };
 
       composerHeightRef.current = DEFAULT_NOTE_HEIGHT;
+      resetAnimationRef.current?.stop();
+      setSpacePressed(false);
       setSelectedId(null);
       setDraft({
         id: window.crypto.randomUUID(),
@@ -121,7 +148,7 @@ export default function Canvas() {
         initialText,
       });
     },
-    [draft, viewport],
+    [draft, viewport, loaded, draggingId],
   );
 
   useEffect(() => {
@@ -132,7 +159,7 @@ export default function Canvas() {
       ) return;
 
       if (event.key === " " && !isTextInput(event.target)) {
-        spacePressedRef.current = true;
+        setSpacePressed(true);
         event.preventDefault();
         return;
       }
@@ -165,17 +192,16 @@ export default function Canvas() {
         setSelectedId(null);
         return;
       }
-
     }
 
     function handleKeyUp(event: KeyboardEvent) {
       if (event.key === " ") {
-        spacePressedRef.current = false;
+        setSpacePressed(false);
       }
     }
 
     function handleWindowBlur() {
-      spacePressedRef.current = false;
+      setSpacePressed(false);
     }
 
     window.addEventListener("keydown", handleKeyDown);
@@ -187,94 +213,6 @@ export default function Canvas() {
       window.removeEventListener("blur", handleWindowBlur);
     };
   }, [beginDraft, selectedId]);
-
-  useEffect(() => {
-    const root = rootRef.current;
-    if (!root) return;
-
-    function handleWheel(event: WheelEvent) {
-      if (
-        event.target instanceof HTMLElement &&
-        event.target.closest(".zoom-controls")
-      ) return;
-      event.preventDefault();
-      resetAnimationRef.current?.stop();
-
-      if (event.ctrlKey || event.metaKey) {
-        setViewport((current) => {
-          const nextZoom = clampZoom(
-            current.zoom * Math.exp(-event.deltaY * 0.002),
-          );
-          const worldX = (event.clientX - current.x) / current.zoom;
-          const worldY = (event.clientY - current.y) / current.zoom;
-
-          return {
-            x: event.clientX - worldX * nextZoom,
-            y: event.clientY - worldY * nextZoom,
-            zoom: nextZoom,
-          };
-        });
-        return;
-      }
-
-      setViewport((current) => ({
-        ...current,
-        x: current.x - event.deltaX,
-        y: current.y - event.deltaY,
-      }));
-    }
-
-    root.addEventListener("wheel", handleWheel, { passive: false });
-    return () => root.removeEventListener("wheel", handleWheel);
-  }, []);
-
-  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.button !== 0) return;
-    const target = event.target as HTMLElement;
-    if (target.closest(".zoom-controls")) return;
-    const onNote = Boolean(target.closest(".note-card, .note-composer"));
-    if (onNote && !spacePressedRef.current) return;
-
-    setSelectedId(null);
-    resetAnimationRef.current?.stop();
-    panRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      viewportX: viewport.x,
-      viewportY: viewport.y,
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setIsPanning(true);
-  }
-
-  function handlePointerDownCapture(
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) {
-    if (!spacePressedRef.current) return;
-    handlePointerDown(event);
-    event.stopPropagation();
-  }
-
-  function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
-    const pan = panRef.current;
-    if (!pan || pan.pointerId !== event.pointerId) return;
-
-    setViewport((current) => ({
-      ...current,
-      x: pan.viewportX + event.clientX - pan.startX,
-      y: pan.viewportY + event.clientY - pan.startY,
-    }));
-  }
-
-  function finishPan(event: ReactPointerEvent<HTMLDivElement>) {
-    if (panRef.current?.pointerId !== event.pointerId) return;
-    panRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    setIsPanning(false);
-  }
 
   function commitDraft(text: string) {
     if (!draft) return;
@@ -314,13 +252,32 @@ export default function Canvas() {
     setSelectedId(note.id);
   }
 
-  function updateNotePosition(id: string, x: number, y: number) {
-    setNotes((current) =>
-      current.map((note) => (note.id === id ? { ...note, x, y } : note)),
+  const handleNodesChange = useCallback((changes: NodeChange<NoteNode>[]) => {
+    for (const change of changes) {
+      if (change.type === "select") {
+        setSelectedId((current) =>
+          change.selected ? change.id : current === change.id ? null : current,
+        );
+      }
+    }
+    const positions = new Map(
+      changes.flatMap((change) =>
+        change.type === "position" && change.position
+          ? [[change.id, change.position] as const]
+          : [],
+      ),
     );
-  }
+    if (positions.size) {
+      setNotes((current) =>
+        current.map((note) => {
+          const position = positions.get(note.id);
+          return position ? { ...note, ...position } : note;
+        }),
+      );
+    }
+  }, []);
 
-  function updateNoteText(id: string, text: string) {
+  const updateNoteText = useCallback((id: string, text: string) => {
     const trimmed = text.trim();
     if (!trimmed) {
       setNotes((current) => current.filter((note) => note.id !== id));
@@ -335,9 +292,9 @@ export default function Canvas() {
           : note,
       ),
     );
-  }
+  }, []);
 
-  function bringNoteToFront(id: string) {
+  const bringNoteToFront = useCallback((id: string) => {
     setSelectedId(id);
     setNotes((current) => {
       const highest = current.reduce(
@@ -350,7 +307,7 @@ export default function Canvas() {
           : note,
       );
     });
-  }
+  }, []);
 
   const measureNote = useCallback((id: string, height: number) => {
     noteHeightsRef.current.set(id, height);
@@ -358,6 +315,41 @@ export default function Canvas() {
 
   const measureComposer = useCallback((height: number) => {
     composerHeightRef.current = height;
+  }, []);
+
+  const nodes = useMemo<NoteNode[]>(
+    () => notes.map((note) => ({
+      id: note.id,
+      type: "note",
+      position: { x: note.x, y: note.y },
+      selected: note.id === selectedId,
+      zIndex: note.z,
+      data: {
+        note,
+        onChange: updateNoteText,
+        onMeasure: measureNote,
+        onSelect: bringNoteToFront,
+      },
+    })),
+    [notes, selectedId, updateNoteText, measureNote, bringNoteToFront],
+  );
+
+  const handlePaneClick = useCallback(() => setSelectedId(null), []);
+  const handleNodeClick = useCallback((_event: unknown, node: NoteNode) => {
+    bringNoteToFront(node.id);
+  }, [bringNoteToFront]);
+  const handleDragStart = useCallback((_event: unknown, node: NoteNode) => {
+    resetAnimationRef.current?.stop();
+    setDraggingId(node.id);
+    bringNoteToFront(node.id);
+  }, [bringNoteToFront]);
+  const handleDragStop = useCallback(() => setDraggingId(null), []);
+  const handleMoveStart = useCallback((event: unknown) => {
+    // Controlled viewport updates also emit callbacks with a sync marker.
+    // Only a native gesture should interrupt the reset animation.
+    if (event instanceof Event) {
+      resetAnimationRef.current?.stop();
+    }
   }, []);
 
   function resetViewport() {
@@ -409,51 +401,64 @@ export default function Canvas() {
     >
       <main
         ref={rootRef}
-        className={`canvas-shell${isPanning ? " is-panning" : ""}`}
+        className="canvas-shell"
         aria-label="Unfold notes canvas"
         aria-busy={!loaded}
-        onPointerDownCapture={handlePointerDownCapture}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={finishPan}
-        onPointerCancel={finishPan}
       >
         <div className="canvas-grid" style={gridStyle} aria-hidden="true" />
-        <div
-          className="canvas-world"
-          style={{
-            transform: `translate3d(${viewport.x}px, ${viewport.y}px, 0) scale(${viewport.zoom})`,
-          }}
+        <ReactFlow<NoteNode>
+          nodes={nodes}
+          nodeTypes={nodeTypes}
+          onNodesChange={handleNodesChange}
+          viewport={viewport}
+          onViewportChange={setViewport}
+          minZoom={MIN_ZOOM}
+          maxZoom={MAX_ZOOM}
+          panOnDrag={[0, 1]}
+          panOnScroll={!draggingId}
+          panOnScrollSpeed={1}
+          panActivationKeyCode="Space"
+          zoomActivationKeyCode={draggingId ? null : ["Control", "Meta"]}
+          zoomOnScroll={false}
+          // Trackpad pinch and Ctrl+wheel share the browser ctrlKey signal.
+          zoomOnPinch={!draggingId}
+          zoomOnDoubleClick={false}
+          nodesDraggable={!spacePressed || !!draggingId}
+          nodesConnectable={false}
+          nodesFocusable={false}
+          selectionKeyCode={null}
+          multiSelectionKeyCode={null}
+          deleteKeyCode={null}
+          nodeDragThreshold={3}
+          nodeClickDistance={3}
+          paneClickDistance={3}
+          autoPanOnNodeDrag={false}
+          elevateNodesOnSelect={false}
+          onPaneClick={handlePaneClick}
+          onNodeClick={handleNodeClick}
+          onNodeDragStart={handleDragStart}
+          onNodeDragStop={handleDragStop}
+          onMoveStart={handleMoveStart}
+          attributionPosition="top-right"
         >
-          <AnimatePresence>
-            {notes.map((note) => (
-              <NoteCard
-                key={note.id}
-                note={note}
-                zoom={viewport.zoom}
-                selected={note.id === selectedId}
-                onSelect={bringNoteToFront}
-                onMove={updateNotePosition}
-                onChange={updateNoteText}
-                onMeasure={measureNote}
-              />
-            ))}
-            {draft ? (
-              <Composer
-                key={draft.id}
-                id={draft.id}
-                x={draft.x}
-                y={draft.y}
-                originX={draft.originX}
-                originY={draft.originY}
-                initialText={draft.initialText}
-                onCommit={commitDraft}
-                onCancel={() => setDraft(null)}
-                onMeasure={measureComposer}
-              />
-            ) : null}
-          </AnimatePresence>
-        </div>
+          <ViewportPortal>
+            <AnimatePresence>
+              {draft ? (
+                <Composer
+                  key={draft.id}
+                  x={draft.x}
+                  y={draft.y}
+                  originX={draft.originX}
+                  originY={draft.originY}
+                  initialText={draft.initialText}
+                  onCommit={commitDraft}
+                  onCancel={() => setDraft(null)}
+                  onMeasure={measureComposer}
+                />
+              ) : null}
+            </AnimatePresence>
+          </ViewportPortal>
+        </ReactFlow>
 
         <AnimatePresence>
           {loaded && notes.length === 0 && !draft ? (

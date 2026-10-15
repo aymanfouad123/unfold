@@ -7,7 +7,6 @@ import {
 import { motion } from "motion/react";
 
 type ComposerProps = {
-  id: string;
   x: number;
   y: number;
   originX: number;
@@ -19,7 +18,6 @@ type ComposerProps = {
 };
 
 export default function Composer({
-  id,
   x,
   y,
   originX,
@@ -73,14 +71,17 @@ export default function Composer({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.nativeEvent.isComposing) return;
     if (event.key === "Escape") {
       event.preventDefault();
+      event.stopPropagation();
       cancel();
       return;
     }
 
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
+      event.stopPropagation();
       commit();
     }
   }
@@ -88,9 +89,8 @@ export default function Composer({
   return (
     <motion.div
       ref={composerRef}
-      className="note-composer"
+      className="note-composer nodrag nopan nowheel"
       style={{ left: x, top: y }}
-      layoutId={`note-${id}`}
       initial={{
         opacity: 0,
         scale: 0.985,
