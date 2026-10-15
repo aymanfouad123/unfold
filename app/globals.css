@@ -439,10 +439,29 @@ button:focus-visible,
   color: var(--text);
 }
 
+.command-palette-row[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .command-palette-hint {
   padding: 10px 12px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.command-palette-answer {
+  min-height: 48px;
+  max-height: 180px;
+  padding: 16px 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--hairline);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  user-select: text;
 }
 
 @media (max-width: 640px) {

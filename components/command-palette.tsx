@@ -59,15 +59,22 @@ export default function CommandPalette({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const finishedRef = useRef(false);
+  const requestRef = useRef<AbortController | null>(null);
   const [query, setQuery] = useState(initialText);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [answer, setAnswer] = useState("");
+  const [askError, setAskError] = useState("");
+  const [asking, setAsking] = useState(false);
   const terms = useMemo(() => query.toLowerCase().trim().split(/\s+/).filter(Boolean), [query]);
   const results = useMemo(() => notes
     .filter((note) => terms.every((term) => note.text.toLowerCase().includes(term)))
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
     .slice(0, terms.length ? 8 : 3), [notes, terms]);
-  const selectedIndex = Math.min(activeIndex, results.length);
+  const askIndex = results.length + 1;
+  const selectedIndex = Math.min(activeIndex, askIndex);
   const optionId = (index: number) => `${id}-option-${index}`;
+
+  useEffect(() => () => requestRef.current?.abort(), []);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -96,14 +103,60 @@ export default function CommandPalette({
   function close() {
     if (finishedRef.current) return;
     finishedRef.current = true;
+    requestRef.current?.abort();
     onClose(query);
   }
 
   function run(index: number) {
     if (finishedRef.current) return;
+    if (index === askIndex) {
+      void askNotes();
+      return;
+    }
     finishedRef.current = true;
+    requestRef.current?.abort();
     if (index === 0) onCreate(query);
     else onOpenNote(results[index - 1].id);
+  }
+
+  async function askNotes() {
+    if (!query.trim() || asking || !notes.length) return;
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
+    setAnswer("");
+    setAskError("");
+    setAsking(true);
+    try {
+      const response = await fetch("/api/prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          mode: "notes",
+          text: JSON.stringify(notes.map(({ text, updatedAt }) => ({ text, updatedAt }))),
+          messages: [{ role: "user", content: query.trim() }],
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || typeof data.reply !== "string" || !data.reply.trim()) {
+        throw new Error("Unable to answer");
+      }
+      if (!controller.signal.aborted) setAnswer(data.reply);
+    } catch {
+      if (!controller.signal.aborted) setAskError("Couldn't reach AI. Try asking again.");
+    } finally {
+      if (!controller.signal.aborted) setAsking(false);
+    }
+  }
+
+  function changeQuery(text: string) {
+    requestRef.current?.abort();
+    setQuery(text);
+    setActiveIndex(0);
+    setAnswer("");
+    setAskError("");
+    setAsking(false);
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -114,7 +167,7 @@ export default function CommandPalette({
       close();
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      setActiveIndex(Math.max(0, Math.min(results.length, selectedIndex + (event.key === "ArrowDown" ? 1 : -1))));
+      setActiveIndex(Math.max(0, Math.min(askIndex, selectedIndex + (event.key === "ArrowDown" ? 1 : -1))));
     } else if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       run(selectedIndex);
@@ -128,10 +181,11 @@ export default function CommandPalette({
     const active = selectedIndex === index;
     return (
       <div
-        key={index === 0 ? "new" : results[index - 1].id}
+        key={index === 0 ? "new" : index === askIndex ? "ask" : results[index - 1].id}
         id={optionId(index)}
         role="option"
         aria-selected={active}
+        aria-disabled={index === askIndex ? !query.trim() || !notes.length || asking : undefined}
         className="command-palette-row"
         onPointerMove={() => setActiveIndex(index)}
         onMouseDown={(event) => event.preventDefault()}
@@ -157,7 +211,7 @@ export default function CommandPalette({
         className="command-palette"
         role="dialog"
         aria-modal="true"
-        aria-label="Create or find a note"
+        aria-label="Create, find, or ask your notes"
         onKeyDown={handleKeyDown}
         initial={{ opacity: 0, scale: 0.985, y: 4 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -167,7 +221,7 @@ export default function CommandPalette({
           ref={textareaRef}
           className="command-palette-input"
           role="combobox"
-          aria-label="Write or find a note"
+          aria-label="Write, find, or ask your notes"
           aria-expanded="true"
           aria-autocomplete="list"
           aria-controls={`${id}-list`}
@@ -176,7 +230,7 @@ export default function CommandPalette({
           rows={1}
           spellCheck
           value={query}
-          onChange={(event) => { setQuery(event.target.value); setActiveIndex(0); }}
+          onChange={(event) => changeQuery(event.target.value)}
         />
         <div className="command-palette-separator" />
         <LayoutGroup id={id}>
@@ -189,8 +243,17 @@ export default function CommandPalette({
                 matchedTitle(note.text.split(/\r?\n/)[0], terms),
                 <time dateTime={note.updatedAt}>{dateFormatter.format(new Date(note.updatedAt))}</time>))}
             </div>
+            <div role="group" aria-labelledby={`${id}-ask`}>
+              <div id={`${id}-ask`} className="command-palette-section">ask</div>
+              {row(askIndex, "Ask your notes", asking ? "Thinking…" : "AI")}
+            </div>
           </div>
         </LayoutGroup>
+        {asking || answer || askError ? (
+          <div className="command-palette-answer" role="status" aria-live="polite" aria-busy={asking}>
+            {asking ? "Thinking about your notes…" : askError || answer}
+          </div>
+        ) : null}
       </motion.div>
     </motion.div>
   );
