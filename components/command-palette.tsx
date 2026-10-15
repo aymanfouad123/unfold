@@ -65,7 +65,7 @@ export default function CommandPalette({
   const results = useMemo(() => notes
     .filter((note) => terms.every((term) => note.text.toLowerCase().includes(term)))
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
-    .slice(0, terms.length ? 8 : 5), [notes, terms]);
+    .slice(0, terms.length ? 8 : 3), [notes, terms]);
   const selectedIndex = Math.min(activeIndex, results.length);
   const optionId = (index: number) => `${id}-option-${index}`;
 
@@ -184,6 +184,7 @@ export default function CommandPalette({
             {row(0, "New note", "↵")}
             <div role="group" aria-labelledby={`${id}-notes`}>
               <div id={`${id}-notes`} className="command-palette-section">notes</div>
+              {results.length === 0 ? <div className="command-palette-hint">{terms.length ? "No matching notes" : "Your notes will appear here"}</div> : null}
               {results.map((note, index) => row(index + 1,
                 matchedTitle(note.text.split(/\r?\n/)[0], terms),
                 <time dateTime={note.updatedAt}>{dateFormatter.format(new Date(note.updatedAt))}</time>))}

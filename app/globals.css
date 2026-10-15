@@ -328,13 +328,16 @@ button:focus-visible,
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 22vh 24px 24px;
+  padding: calc(42dvh - 30px) 24px 16px;
   overflow-y: auto;
   background: rgb(0 0 0 / 10%);
   touch-action: auto;
 }
 
 .command-palette {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(58dvh + 14px);
   width: 560px;
   max-width: 100%;
   overflow: hidden;
@@ -348,7 +351,8 @@ button:focus-visible,
   display: block;
   width: 100%;
   min-height: 58px;
-  max-height: 30vh;
+  max-height: 24dvh;
+  flex-shrink: 0;
   padding: 18px 20px;
   overflow-y: auto;
   border: 0;
@@ -368,11 +372,13 @@ button:focus-visible,
 }
 
 .command-palette-separator {
+  flex-shrink: 0;
   height: 1px;
   background: var(--hairline);
 }
 
 .command-palette-list {
+  min-height: 0;
   max-height: 300px;
   padding: 6px;
   overflow-y: auto;
@@ -431,6 +437,12 @@ button:focus-visible,
 .command-palette-match {
   background: transparent;
   color: var(--text);
+}
+
+.command-palette-hint {
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 @media (max-width: 640px) {
