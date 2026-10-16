@@ -18,6 +18,11 @@ type CommandPaletteProps = {
   onClose: () => void;
 };
 
+type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 const dateFormatter = new Intl.DateTimeFormat("en", {
   month: "short",
   day: "numeric",
@@ -66,6 +71,8 @@ export default function CommandPalette({
   const [answer, setAnswer] = useState("");
   const [askError, setAskError] = useState("");
   const [asking, setAsking] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [submitPulse, setSubmitPulse] = useState(0);
   const showAnswer = asking || !!answer || !!askError;
   const terms = useMemo(() => query.toLowerCase().trim().split(/\s+/).filter(Boolean), [query]);
   const results = useMemo(() => askMode ? [] : notes
@@ -129,9 +136,13 @@ export default function CommandPalette({
     requestRef.current?.abort();
     const controller = new AbortController();
     requestRef.current = controller;
-    setAnswer("");
+    const nextMessages: ChatMessage[] = [
+      ...messages.slice(-18),
+      { role: "user", content: text },
+    ];
     setAskError("");
     setAsking(true);
+    setSubmitPulse((current) => current + 1);
     try {
       const response = await fetch("/api/prompt", {
         method: "POST",
@@ -139,14 +150,19 @@ export default function CommandPalette({
         signal: controller.signal,
         body: JSON.stringify({
           mode: "ask",
-          messages: [{ role: "user", content: text }],
+          messages: nextMessages,
         }),
       });
       const data = await response.json();
       if (!response.ok || typeof data.reply !== "string" || !data.reply.trim()) {
         throw new Error("Unable to answer");
       }
-      if (!controller.signal.aborted) setAnswer(data.reply);
+      if (!controller.signal.aborted) {
+        setAnswer(data.reply);
+        setMessages([...nextMessages, { role: "assistant", content: data.reply }]);
+        setQuery("");
+        textareaRef.current?.focus();
+      }
     } catch {
       if (!controller.signal.aborted) setAskError("Couldn't reach AI. Try asking again.");
     } finally {
@@ -161,7 +177,6 @@ export default function CommandPalette({
     requestRef.current?.abort();
     setQuery(text);
     setActiveIndex(null);
-    setAnswer("");
     setAskError("");
     setAsking(false);
   }
@@ -174,6 +189,8 @@ export default function CommandPalette({
 
   function exitAskMode() {
     changeQuery(query);
+    setAnswer("");
+    setMessages([]);
     setAskMode(false);
     textareaRef.current?.focus();
   }
@@ -243,6 +260,9 @@ export default function CommandPalette({
         exit={{ opacity: 0, transition: { duration: 0.12 } }}
       >
         <div className="command-palette-input-row">
+          {submitPulse > 0 ? (
+            <span key={submitPulse} className="command-palette-submit-pulse" aria-hidden="true" />
+          ) : null}
           {askMode ? (
             <motion.button
               type="button"
@@ -266,7 +286,7 @@ export default function CommandPalette({
             aria-autocomplete={showAnswer ? undefined : "list"}
             aria-controls={showAnswer ? undefined : `${id}-list`}
             aria-activedescendant={showAnswer ? undefined : optionId(selectedIndex)}
-            placeholder={askMode ? "Ask anything…" : "Unfold a thought…"}
+            placeholder={askMode ? messages.length ? "Chat more with the response…" : "Ask anything…" : "Unfold a thought…"}
             rows={1}
             spellCheck
             value={query}

@@ -353,11 +353,37 @@ button:focus-visible,
 }
 
 .command-palette-input-row {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 12px;
   flex-shrink: 0;
   padding: 17px 20px;
+  border-radius: 13px 13px 0 0;
+}
+
+.command-palette-submit-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  animation: command-palette-send 340ms var(--ease-out);
+}
+
+@keyframes command-palette-send {
+  0% {
+    opacity: 0;
+    box-shadow: inset 0 0 0 1px rgb(92 154 232 / 0%);
+  }
+  22% {
+    opacity: 1;
+    box-shadow: inset 0 0 0 1px rgb(92 154 232 / 40%), inset 0 0 22px rgb(48 109 188 / 13%);
+  }
+  100% {
+    opacity: 0;
+    box-shadow: inset 0 0 0 1px rgb(92 154 232 / 0%), inset 0 0 28px rgb(48 109 188 / 0%);
+  }
 }
 
 .command-palette-ask-pill {
@@ -549,6 +575,10 @@ button:focus-visible,
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .command-palette-submit-pulse {
+    animation: none;
+  }
+
   .canvas-grid,
   .zoom-reset,
   .note-card,
