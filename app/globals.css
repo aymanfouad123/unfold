@@ -1,3 +1,8 @@
+@layer theme, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@source "../node_modules/streamdown/dist/*.js";
+
 :root {
   color-scheme: dark;
   --background: #202020;
@@ -605,6 +610,117 @@ button:focus-visible,
 .command-palette-message-content {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+/* Scoped typography keeps generated content in the palette's visual language. */
+.command-palette-markdown {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.command-palette-markdown :where(p, ul, ol, blockquote, pre, table, hr, h1, h2, h3, h4, h5, h6) {
+  margin: 0;
+}
+
+.command-palette-markdown > * + *,
+.command-palette-markdown :where(p, ul, ol, blockquote, pre, hr, h1, h2, h3, h4, h5, h6, .command-palette-table):where(:not(:first-child)) {
+  margin-top: 10px;
+}
+
+.command-palette-markdown :is(h1, h2, h3, h4, h5, h6) {
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+.command-palette-markdown h1 {
+  font-size: 16px;
+}
+
+.command-palette-markdown strong {
+  font-weight: 600;
+}
+.command-palette-markdown :is(ul, ol) {
+  padding-inline-start: 22px;
+  list-style-position: outside;
+}
+
+.command-palette-markdown li {
+  padding-block: 0;
+}
+.command-palette-markdown ul {
+  list-style: disc;
+}
+.command-palette-markdown ol {
+  list-style: decimal;
+}
+.command-palette-markdown li + li {
+  margin-top: 4px;
+}
+.command-palette-markdown li > :is(ul, ol) {
+  margin-top: 4px;
+}
+.command-palette-markdown a {
+  color: var(--ask-text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.command-palette-markdown a:focus-visible {
+  outline: 2px solid var(--ask-border);
+  outline-offset: 3px;
+}
+.command-palette-markdown blockquote {
+  border-inline-start: 2px solid var(--hairline-hover);
+  padding-inline-start: 12px;
+  color: #aaa;
+}
+.command-palette-markdown hr {
+  border: 0;
+  border-top: 1px solid var(--hairline-hover);
+}
+.command-palette-markdown code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+}
+.command-palette-markdown :not(pre) > code {
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 6%);
+}
+.command-palette-markdown pre {
+  max-width: 100%;
+  padding: 12px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border: 1px solid var(--hairline-hover);
+  border-radius: 8px;
+  background: rgb(0 0 0 / 12%);
+  white-space: pre;
+  overflow-wrap: normal;
+  line-height: 1.6;
+}
+.command-palette-table {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.command-palette-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.command-palette-markdown :is(th, td) {
+  min-width: 100px;
+  padding: 7px 10px;
+  border: 1px solid var(--hairline-hover);
+  text-align: start;
+  vertical-align: top;
+}
+.command-palette-markdown th {
+  font-weight: 600;
+  background: rgb(255 255 255 / 3%);
 }
 
 .command-palette-pending,

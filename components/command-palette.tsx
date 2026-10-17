@@ -14,6 +14,7 @@ import {
   useReducedMotion,
 } from "motion/react";
 
+import AssistantResponse from "@/components/assistant-response";
 import type { Note } from "@/lib/notes";
 
 type CommandPaletteProps = {
@@ -557,9 +558,10 @@ export default function CommandPalette({
                           {message.content}
                         </div>
                       ) : message.content ? (
-                        <div className="command-palette-message-content">
-                          {message.content}
-                        </div>
+                        <AssistantResponse
+                          content={message.content}
+                          streaming={message.id === draft?.id && asking}
+                        />
                       ) : (
                         <div className="command-palette-pending">Thinking…</div>
                       )}
