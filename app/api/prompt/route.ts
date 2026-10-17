@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const record = body as { text?: unknown; messages?: unknown; mode?: unknown };
+  const record = body as { text?: unknown; messages?: unknown; mode?: unknown; stream?: unknown };
   const text = typeof record.text === "string" ? record.text.trim() : "";
   const hasMessages = "messages" in record;
 
@@ -71,20 +71,50 @@ export async function POST(request: Request) {
 
     try {
       const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      const completionMessages = [
+        { role: "system" as const, content: record.mode === "ask" ? ASK_SYSTEM_PROMPT : record.mode === "notes" ? NOTES_SYSTEM_PROMPT : CHAT_SYSTEM_PROMPT },
+        ...(record.mode === "ask" ? [] : [{
+          role: record.mode === "notes" ? "user" as const : "system" as const,
+          content: record.mode === "notes"
+            ? `Canvas notes (JSON):\n\n${text}`
+            : text
+            ? `The writer's current journal draft:\n\n${text}`
+            : "The writer has not written anything in their draft yet.",
+        }]),
+        ...messages,
+      ];
+
+      if (record.stream === true) {
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: completionMessages,
+          stream: true,
+        }, { signal: request.signal });
+        const encoder = new TextEncoder();
+
+        return new Response(new ReadableStream({
+          async start(controller) {
+            try {
+              for await (const chunk of completion) {
+                const content = chunk.choices[0]?.delta?.content;
+                if (content) controller.enqueue(encoder.encode(content));
+              }
+              controller.close();
+            } catch (reason) {
+              controller.error(reason);
+            }
+          },
+        }), {
+          headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Cache-Control": "no-store",
+          },
+        });
+      }
+
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: record.mode === "ask" ? ASK_SYSTEM_PROMPT : record.mode === "notes" ? NOTES_SYSTEM_PROMPT : CHAT_SYSTEM_PROMPT },
-          ...(record.mode === "ask" ? [] : [{
-            role: record.mode === "notes" ? "user" as const : "system" as const,
-            content: record.mode === "notes"
-              ? `Canvas notes (JSON):\n\n${text}`
-              : text
-              ? `The writer's current journal draft:\n\n${text}`
-              : "The writer has not written anything in their draft yet.",
-          }]),
-          ...messages,
-        ],
+        messages: completionMessages,
       });
 
       const reply = completion.choices[0]?.message?.content?.trim() ?? "";
