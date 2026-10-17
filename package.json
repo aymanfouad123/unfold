@@ -16,7 +16,8 @@
     "openai": "^7.28.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "streamdown": "^2.7.0"
+    "streamdown": "^2.7.0",
+    "use-stick-to-bottom": "^1.1.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

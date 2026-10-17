@@ -3,6 +3,7 @@ import {
   type ReactNode,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -13,6 +14,8 @@ import {
   useIsPresent,
   useReducedMotion,
 } from "motion/react";
+
+import { useStickToBottom } from "use-stick-to-bottom";
 
 import AssistantResponse from "@/components/assistant-response";
 import type { Note } from "@/lib/notes";
@@ -41,6 +44,39 @@ const dateFormatter = new Intl.DateTimeFormat("en", {
 });
 
 const ASK_PREFIX = /^\s*(?:ask|ai)(?=\s|$)\s*/i;
+
+type ScrollHold = {
+  pinned: boolean;
+  anchor: Element | null;
+  offset: number;
+};
+
+function captureScroll(
+  transcript: HTMLElement,
+  content: HTMLElement,
+  pinned: boolean,
+): ScrollHold {
+  if (pinned) return { pinned, anchor: null, offset: 0 };
+  const top = transcript.getBoundingClientRect().top;
+  for (const element of content.querySelectorAll("*")) {
+    const offset = element.getBoundingClientRect().top - top;
+    if (offset >= 0) return { pinned, anchor: element, offset };
+  }
+  return { pinned, anchor: null, offset: 0 };
+}
+
+// Reflowing to a new width moves text, so readers keep their place by anchoring
+// to the first visible block rather than to a raw scroll offset.
+function restoreScroll(transcript: HTMLElement, hold: ScrollHold) {
+  if (hold.pinned) {
+    transcript.scrollTop = transcript.scrollHeight;
+  } else if (hold.anchor?.isConnected) {
+    transcript.scrollTop +=
+      hold.anchor.getBoundingClientRect().top -
+      transcript.getBoundingClientRect().top -
+      hold.offset;
+  }
+}
 
 function matchedTitle(title: string, terms: string[]) {
   if (!terms.length) return title;
@@ -81,6 +117,25 @@ export default function CommandPalette({
   const isPresent = useIsPresent();
   const shouldReduceMotion = useReducedMotion();
   const panelRef = useRef<HTMLDivElement>(null);
+  const scrimRef = useRef<HTMLDivElement>(null);
+  const resizeAnimationsRef = useRef<Animation[]>([]);
+  const resizeOriginRef = useRef<{
+    width: number;
+    height: number;
+    top: string;
+  } | null>(null);
+  const {
+    scrollRef,
+    contentRef,
+    scrollToBottom,
+    isAtBottom,
+    stopScroll,
+    state: stickState,
+  } = useStickToBottom({
+    initial: "instant",
+    resize: shouldReduceMotion ? "instant" : "smooth",
+  });
+  const scrollHoldRef = useRef<ScrollHold | null>(null);
   const renderFrameRef = useRef<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -94,6 +149,10 @@ export default function CommandPalette({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState<StreamDraft | null>(null);
   const [submitPulse, setSubmitPulse] = useState(0);
+  const [expanded, setExpanded] = useState(false);
+  const [heldLatest, setHeldLatest] = useState<boolean | null>(null);
+  const showLatest = heldLatest ?? !isAtBottom;
+  const [conversationOverflows, setConversationOverflows] = useState(false);
   const showConversation = messages.length > 0;
   const terms = useMemo(
     () => query.toLowerCase().trim().split(/\s+/).filter(Boolean),
@@ -125,9 +184,145 @@ export default function CommandPalette({
       requestRef.current?.abort();
       if (renderFrameRef.current !== null)
         cancelAnimationFrame(renderFrameRef.current);
+      resizeAnimationsRef.current.forEach((animation) => animation.cancel());
+      stopScroll();
     },
-    [],
+    [stopScroll],
   );
+
+  useLayoutEffect(() => {
+    const origin = resizeOriginRef.current;
+    const panel = panelRef.current;
+    const scrim = scrimRef.current;
+    if (!origin || !panel || !scrim) return;
+    resizeOriginRef.current = null;
+    resizeAnimationsRef.current.forEach((animation) => animation.cancel());
+    resizeAnimationsRef.current = [];
+    scrollRef.current?.style.removeProperty("max-height");
+    const releaseScroll = () => {
+      const hold = scrollHoldRef.current;
+      const transcript = scrollRef.current;
+      transcript?.style.removeProperty("max-height");
+      if (!hold) return;
+      if (transcript) restoreScroll(transcript, hold);
+      scrollHoldRef.current = null;
+      setHeldLatest(null);
+      if (hold.pinned) void scrollToBottom("instant");
+      else if (stickState.isAtBottom) stopScroll();
+    };
+    if (shouldReduceMotion) {
+      releaseScroll();
+      return;
+    }
+
+    // Measure the new CSS layout before animating real dimensions, so text stays
+    // crisp and the scroll container responds throughout the resize.
+    const target = panel.getBoundingClientRect();
+    const timing = { duration: 360, easing: "cubic-bezier(0.22, 1, 0.36, 1)" };
+    const resize = panel.animate(
+      {
+        width: [`${origin.width}px`, `${target.width}px`],
+        height: [`${origin.height}px`, `${target.height}px`],
+        maxHeight: [`${origin.height}px`, `${target.height}px`],
+      },
+      timing,
+    );
+    resizeAnimationsRef.current = [
+      scrim.animate(
+        { paddingTop: [origin.top, getComputedStyle(scrim).paddingTop] },
+        timing,
+      ),
+      resize,
+    ];
+    const transcript = scrollRef.current;
+    // The collapsed cap would snap the transcript ahead of the panel; let it
+    // follow the animated panel height until the resize settles.
+    transcript?.style.setProperty("max-height", "none");
+    if (transcript && scrollHoldRef.current) {
+      restoreScroll(transcript, scrollHoldRef.current);
+    }
+    const settle = () => {
+      // A newer toggle replaces this animation and inherits the hold.
+      if (resizeAnimationsRef.current.includes(resize)) releaseScroll();
+    };
+    resize.finished.then(settle, settle);
+  }, [
+    expanded,
+    shouldReduceMotion,
+    scrollRef,
+    scrollToBottom,
+    stopScroll,
+    stickState,
+  ]);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const updateViewport = () => {
+      const scrim = scrimRef.current;
+      if (!scrim) return;
+      resizeAnimationsRef.current.forEach((animation) => animation.cancel());
+      scrim.style.setProperty(
+        "--palette-viewport-height",
+        `${viewport?.height ?? window.innerHeight}px`,
+      );
+      scrim.style.setProperty(
+        "--palette-viewport-top",
+        `${viewport?.offsetTop ?? 0}px`,
+      );
+      const textarea = textareaRef.current;
+      if (textarea) {
+        textarea.style.height = "0";
+        textarea.style.height = `${textarea.scrollHeight}px`;
+      }
+    };
+    updateViewport();
+    window.addEventListener("resize", updateViewport);
+    viewport?.addEventListener("resize", updateViewport);
+    viewport?.addEventListener("scroll", updateViewport);
+    return () => {
+      window.removeEventListener("resize", updateViewport);
+      viewport?.removeEventListener("resize", updateViewport);
+      viewport?.removeEventListener("scroll", updateViewport);
+    };
+  }, []);
+
+  useEffect(() => {
+    const transcript = scrollRef.current;
+    const content = contentRef.current;
+    if (!transcript || !content) {
+      setConversationOverflows(false);
+      return;
+    }
+    const updateOverflow = () => {
+      setConversationOverflows(
+        transcript.scrollHeight > transcript.clientHeight + 1,
+      );
+    };
+    const observer = new ResizeObserver(() => {
+      updateOverflow();
+      const hold = scrollHoldRef.current;
+      if (hold) {
+        if (!hold.pinned && stickState.isAtBottom) stopScroll();
+        restoreScroll(transcript, hold);
+        return;
+      }
+      void scrollToBottom({
+        preserveScrollPosition: true,
+        animation: "instant",
+      });
+    });
+    observer.observe(transcript);
+    observer.observe(content);
+    updateOverflow();
+    return () => observer.disconnect();
+  }, [
+    showConversation,
+    contentRef,
+    scrollRef,
+    scrollToBottom,
+    stopScroll,
+    stickState,
+  ]);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -164,6 +359,7 @@ export default function CommandPalette({
     requestRef.current?.abort();
     if (renderFrameRef.current !== null)
       cancelAnimationFrame(renderFrameRef.current);
+    stopScroll();
     onClose();
   }
 
@@ -197,6 +393,7 @@ export default function CommandPalette({
     setDraft({ id: draftId, content: "" });
     setAskError("");
     setAsking(true);
+    void scrollToBottom("instant");
     textareaRef.current?.focus({ preventScroll: true });
     try {
       const response = await fetch("/api/prompt", {
@@ -283,9 +480,34 @@ export default function CommandPalette({
       cancelAnimationFrame(renderFrameRef.current);
       renderFrameRef.current = null;
     }
+    stopScroll();
+    resizeAnimationsRef.current.forEach((animation) => animation.cancel());
+    resizeOriginRef.current = null;
+    scrollHoldRef.current = null;
+    setHeldLatest(null);
+    setExpanded(false);
     setAskMode(false);
     setActiveIndex(null);
     textareaRef.current?.focus();
+  }
+
+  function toggleExpanded() {
+    const panel = panelRef.current;
+    const scrim = scrimRef.current;
+    if (!panel || !scrim) return;
+    const transcript = scrollRef.current;
+    const content = contentRef.current;
+    if (transcript && content && !scrollHoldRef.current) {
+      scrollHoldRef.current = captureScroll(transcript, content, isAtBottom);
+      setHeldLatest(!isAtBottom);
+    }
+    const { width, height } = panel.getBoundingClientRect();
+    resizeOriginRef.current = {
+      width,
+      height,
+      top: getComputedStyle(scrim).paddingTop,
+    };
+    setExpanded((current) => !current);
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -323,6 +545,19 @@ export default function CommandPalette({
         focusable.length;
       event.preventDefault();
       focusable[next]?.focus({ preventScroll: true });
+    } else if (
+      showConversation &&
+      event.key === "e" &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.shiftKey &&
+      !event.repeat &&
+      (expanded || conversationOverflows) &&
+      (!inInput || !query)
+    ) {
+      event.preventDefault();
+      toggleExpanded();
     } else if (!inInput) {
       return;
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -386,7 +621,9 @@ export default function CommandPalette({
 
   return (
     <motion.div
+      ref={scrimRef}
       className="command-palette-scrim"
+      data-expanded={expanded || undefined}
       style={{ pointerEvents: isPresent ? "auto" : "none" }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -520,6 +757,7 @@ export default function CommandPalette({
           <div className="command-palette-conversation">
             <div className="command-palette-transcript-frame">
               <div
+                ref={scrollRef}
                 id={`${id}-transcript`}
                 className="command-palette-transcript"
                 role="log"
@@ -529,6 +767,7 @@ export default function CommandPalette({
                 tabIndex={0}
               >
                 <div
+                  ref={contentRef}
                   className="command-palette-transcript-content"
                 >
                   {[
@@ -588,7 +827,47 @@ export default function CommandPalette({
                   ) : null}
                 </div>
               </div>
+              {showLatest ? (
+                <button
+                  type="button"
+                  className="command-palette-latest"
+                  onClick={() => {
+                    void scrollToBottom(
+                      shouldReduceMotion ? "instant" : "smooth",
+                    );
+                    textareaRef.current?.focus({ preventScroll: true });
+                  }}
+                >
+                  Latest ↓
+                </button>
+              ) : null}
             </div>
+            {expanded || conversationOverflows ? (
+              <div className="command-palette-footer">
+                <motion.button
+                  type="button"
+                  className="command-palette-expand"
+                  aria-label={
+                    expanded ? "Collapse conversation" : "Expand conversation"
+                  }
+                  title={
+                    expanded ? "Collapse conversation" : "Expand conversation"
+                  }
+                  aria-expanded={expanded}
+                  aria-controls={`${id}-transcript`}
+                  aria-keyshortcuts="e"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: shouldReduceMotion ? 0 : 0.14 }}
+                  onClick={toggleExpanded}
+                >
+                  <kbd aria-hidden="true">e</kbd>
+                  <span aria-hidden="true">
+                    to {expanded ? "collapse" : "expand"}
+                  </span>
+                </motion.button>
+              </div>
+            ) : null}
           </div>
         ) : null}
         <div
