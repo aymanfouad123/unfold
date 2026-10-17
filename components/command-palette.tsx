@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
   useEffect,
@@ -9,8 +10,10 @@ import {
   useState,
 } from "react";
 import {
+  AnimatePresence,
   LayoutGroup,
   motion,
+  useAnimationControls,
   useIsPresent,
   useReducedMotion,
 } from "motion/react";
@@ -116,6 +119,7 @@ export default function CommandPalette({
   const id = useId();
   const isPresent = useIsPresent();
   const shouldReduceMotion = useReducedMotion();
+  const panelControls = useAnimationControls();
   const panelRef = useRef<HTMLDivElement>(null);
   const scrimRef = useRef<HTMLDivElement>(null);
   const resizeAnimationsRef = useRef<Animation[]>([]);
@@ -136,6 +140,9 @@ export default function CommandPalette({
     resize: shouldReduceMotion ? "instant" : "smooth",
   });
   const scrollHoldRef = useRef<ScrollHold | null>(null);
+  const keyRef = useRef<HTMLButtonElement>(null);
+  const actionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const renderFrameRef = useRef<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -148,7 +155,15 @@ export default function CommandPalette({
   const [asking, setAsking] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState<StreamDraft | null>(null);
-  const [submitPulse, setSubmitPulse] = useState(0);
+  const [submitPulse, setSubmitPulse] = useState<{
+    id: number;
+    x: number;
+    y: number;
+    size: number;
+    start: number;
+    duration: number;
+  } | null>(null);
+  const [sendPressed, setSendPressed] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [heldLatest, setHeldLatest] = useState<boolean | null>(null);
   const showLatest = heldLatest ?? !isAtBottom;
@@ -182,6 +197,8 @@ export default function CommandPalette({
   useEffect(
     () => () => {
       requestRef.current?.abort();
+      if (actionTimerRef.current) clearTimeout(actionTimerRef.current);
+      if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
       if (renderFrameRef.current !== null)
         cancelAnimationFrame(renderFrameRef.current);
       resizeAnimationsRef.current.forEach((animation) => animation.cancel());
@@ -189,6 +206,15 @@ export default function CommandPalette({
     },
     [stopScroll],
   );
+
+  useEffect(() => {
+    void panelControls.start({
+      opacity: 1,
+      scale: 1,
+      y: 0,
+      transition: { duration: shouldReduceMotion ? 0 : 0.18 },
+    });
+  }, [panelControls, shouldReduceMotion]);
 
   useLayoutEffect(() => {
     const origin = resizeOriginRef.current;
@@ -363,19 +389,73 @@ export default function CommandPalette({
     onClose();
   }
 
-  function run(index: number) {
+  function pulse(origin?: { clientX: number; clientY: number }) {
+    const panel = panelRef.current?.getBoundingClientRect();
+    // Keyboard submits radiate from the key they stand in for, not the caret.
+    const source = (
+      askMode
+        ? keyRef.current
+        : listRef.current?.querySelector(
+            '[aria-selected="true"] .command-palette-row-meta',
+          )
+    )?.getBoundingClientRect();
+    if (!panel || !source) return;
+    const x = origin
+      ? origin.clientX - panel.left
+      : source.left + source.width / 2 - panel.left;
+    const y = origin
+      ? origin.clientY - panel.top
+      : source.top + source.height / 2 - panel.top;
+    const size =
+      2 *
+      Math.hypot(Math.max(x, panel.width - x), Math.max(y, panel.height - y));
+    // Longer travel gets more time, so the wavefront keeps a readable speed.
+    const duration = Math.round(Math.min(680, Math.max(460, 260 + size * 0.24)));
+    setSubmitPulse((current) => ({
+      id: (current?.id ?? 0) + 1,
+      x,
+      y,
+      size,
+      start: Math.min(1, 28 / size),
+      duration,
+    }));
+    if (!shouldReduceMotion) {
+      void panelControls.start({
+        scale: [1, 0.994, 1],
+        transition: {
+          duration: 0.42,
+          times: [0, 0.18, 1],
+          ease: [
+            [0.3, 0, 0.6, 1],
+            [0.2, 0.9, 0.3, 1],
+          ],
+        },
+      });
+    }
+    setSendPressed(true);
+    if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
+    pressTimerRef.current = setTimeout(() => setSendPressed(false), 160);
+  }
+
+  function run(index: number, origin?: { clientX: number; clientY: number }) {
     if (finishedRef.current || !isPresent) return;
     if (index === askIndex) {
       if (!askMode) enterAskMode();
       if (!prompt || asking || askError || requestRef.current) return;
-      setSubmitPulse((current) => current + 1);
+      pulse(origin);
       void askAI(prompt);
       return;
     }
     finishedRef.current = true;
+    pulse(origin);
     requestRef.current?.abort();
-    if (index === 0) onCreate(query);
-    else onOpenNote(results[index - 1].id);
+    actionTimerRef.current = setTimeout(
+      () => {
+        if (index === 0) onCreate(query);
+        else onOpenNote(results[index - 1].id);
+      },
+      shouldReduceMotion ? 0 : 80,
+    );
   }
 
   async function askAI(text: string, retry = false) {
@@ -604,7 +684,7 @@ export default function CommandPalette({
         className={`command-palette-row${index === askIndex ? " is-ask" : ""}`}
         onPointerMove={() => setActiveIndex(index)}
         onMouseDown={(event) => event.preventDefault()}
-        onClick={() => run(index)}
+        onClick={(event) => run(index, event)}
       >
         {active ? (
           <motion.div
@@ -644,13 +724,27 @@ export default function CommandPalette({
           scale: shouldReduceMotion ? 1 : 0.985,
           y: shouldReduceMotion ? 0 : 4,
         }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
+        animate={panelControls}
         exit={{ opacity: 0, transition: { duration: 0.12 } }}
       >
+        {submitPulse ? (
+          <span
+            key={submitPulse.id}
+            className="command-palette-submit-pulse"
+            aria-hidden="true"
+            style={
+              {
+                left: submitPulse.x,
+                top: submitPulse.y,
+                width: submitPulse.size,
+                height: submitPulse.size,
+                "--pulse-start": submitPulse.start,
+                "--pulse-duration": `${submitPulse.duration}ms`,
+              } as CSSProperties
+            }
+          />
+        ) : null}
         <div className="command-palette-input-row">
-          {submitPulse > 0 ? (
-            <span key={submitPulse} className="command-palette-submit-pulse" aria-hidden="true" />
-          ) : null}
           {askMode ? (
             <motion.button
               type="button"
@@ -688,6 +782,33 @@ export default function CommandPalette({
             value={query}
             onChange={(event) => changeQuery(event.target.value)}
           />
+          <button
+            ref={keyRef}
+            type="button"
+            className="command-palette-key"
+            aria-label={askMode ? "Send thought" : "Close"}
+            aria-keyshortcuts={askMode ? "Enter" : "Escape"}
+            title={askMode ? "Send thought" : "Close"}
+            data-pressed={(askMode && sendPressed) || undefined}
+            disabled={askMode && sendDisabled}
+            onClick={(event) => {
+              if (askMode) run(askIndex, event.detail ? event : undefined);
+              else close();
+            }}
+          >
+            <AnimatePresence initial={false} mode="wait">
+              <motion.span
+                key={askMode ? "send" : "close"}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: shouldReduceMotion ? 0 : 0.12 }}
+                aria-hidden="true"
+              >
+                {askMode ? "↵" : "Esc"}
+              </motion.span>
+            </AnimatePresence>
+          </button>
         </div>
         {!showConversation ? (
           <>
@@ -812,9 +933,9 @@ export default function CommandPalette({
                       <button
                         type="button"
                         className="command-palette-retry"
-                        onClick={() => {
+                        onClick={(event) => {
                           if (requestRef.current) return;
-                          setSubmitPulse((current) => current + 1);
+                          pulse(event.detail ? event : undefined);
                           void askAI(
                             messages[messages.length - 1].content,
                             true,
