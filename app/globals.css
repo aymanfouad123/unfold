@@ -626,6 +626,17 @@ button:focus-visible,
   font-size: 11px;
 }
 
+::view-transition-group(.note-morph) {
+  animation-duration: 360ms;
+  animation-timing-function: var(--ease-out);
+}
+
+::view-transition-old(.route-crossfade),
+::view-transition-new(.route-crossfade) {
+  animation-duration: 180ms;
+  animation-timing-function: ease;
+}
+
 .command-palette-scrim {
   position: fixed;
   inset: var(--palette-viewport-top, 0px) 0 auto;
@@ -1262,5 +1273,11 @@ button:focus-visible,
   .note-card,
   .note-card time {
     transition-duration: 1ms !important;
+  }
+
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 1ms !important;
   }
 }

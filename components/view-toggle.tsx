@@ -38,6 +38,7 @@ export default function ViewToggle() {
       <Link
         href="/"
         prefetch
+        transitionTypes={["to-canvas"]}
         className={!galleryActive ? "is-active" : undefined}
         aria-current={!galleryActive ? "page" : undefined}
         aria-keyshortcuts="Meta+1 Control+1"
@@ -51,6 +52,7 @@ export default function ViewToggle() {
       <Link
         href="/gallery"
         prefetch
+        transitionTypes={["to-gallery"]}
         className={galleryActive ? "is-active" : undefined}
         aria-current={galleryActive ? "page" : undefined}
         aria-keyshortcuts="Meta+2 Control+2"

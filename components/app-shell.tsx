@@ -2,6 +2,7 @@
 
 import {
   type ReactNode,
+  ViewTransition,
   useCallback,
   useEffect,
   useState,
@@ -86,7 +87,9 @@ export default function AppShell({ children }: AppShellProps) {
       reducedMotion="user"
       transition={{ type: "spring", duration: 0.32, bounce: 0 }}
     >
-      {children}
+      <ViewTransition default="route-crossfade">
+        {children}
+      </ViewTransition>
 
       <div className="app-chrome">
         <span className="canvas-wordmark" aria-hidden="true">

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ViewTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -17,6 +18,7 @@ type NoteGroup = {
 };
 
 const monthName = new Intl.DateTimeFormat("en", { month: "long" });
+const MAX_MORPHS = 24;
 
 function isTextInput(target: EventTarget | null) {
   return (
@@ -193,13 +195,17 @@ export default function Gallery() {
         </div>
       ) : (
         <div className="gallery-groups">
-          {groups.map((group) => {
+          {groups.map((group, groupIndex) => {
+            const offset = groups
+              .slice(0, groupIndex)
+              .reduce((count, current) => count + current.notes.length, 0);
             return (
             <section className="gallery-group" key={group.label}>
               <h2>{group.label}</h2>
               <div className="gallery-grid">
-                {group.notes.map((note) => {
+                {group.notes.map((note, index) => {
                   const { title, preview } = noteParts(note.text);
+                  const morph = offset + index < MAX_MORPHS;
                   return (
                     <button
                       key={note.id}
@@ -214,10 +220,23 @@ export default function Gallery() {
                       onClick={() => notesActions.selectNote(note.id)}
                       onDoubleClick={() => openNote(note.id)}
                     >
-                      <span className="gallery-card-preview">
-                        <strong>{title}</strong>
-                        {preview ? <span>{preview}</span> : null}
-                      </span>
+                      {morph ? (
+                        <ViewTransition
+                          name={`note-${note.id}`}
+                          share="note-morph"
+                          default="none"
+                        >
+                          <span className="gallery-card-preview">
+                            <strong>{title}</strong>
+                            {preview ? <span>{preview}</span> : null}
+                          </span>
+                        </ViewTransition>
+                      ) : (
+                        <span className="gallery-card-preview">
+                          <strong>{title}</strong>
+                          {preview ? <span>{preview}</span> : null}
+                        </span>
+                      )}
                       <span className="gallery-card-meta">
                         <strong>{title}</strong>
                         <time dateTime={note.updatedAt}>

@@ -2,6 +2,7 @@
 
 import {
   type CSSProperties,
+  ViewTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -42,6 +43,7 @@ const GRID_SIZE = 24;
 type NoteNode = Node<
   {
     note: Note;
+    morph: boolean;
     onChange: (id: string, text: string) => void;
     onMeasure: (id: string, height: number) => void;
     onSelect: (id: string) => void;
@@ -49,8 +51,24 @@ type NoteNode = Node<
   "note"
 >;
 
-function CanvasNote({ data, selected, dragging }: NodeProps<NoteNode>) {
+function isNoteOnScreen(
+  note: Note,
+  viewport: Viewport,
+  height: number,
+  screen: { width: number; height: number },
+) {
+  const left = note.x * viewport.zoom + viewport.x;
+  const top = note.y * viewport.zoom + viewport.y;
   return (
+    left + NOTE_WIDTH * viewport.zoom > 0 &&
+    top + height * viewport.zoom > 0 &&
+    left < screen.width &&
+    top < screen.height
+  );
+}
+
+function CanvasNote({ data, selected, dragging }: NodeProps<NoteNode>) {
+  const card = (
     <NoteCard
       note={data.note}
       selected={selected}
@@ -59,6 +77,18 @@ function CanvasNote({ data, selected, dragging }: NodeProps<NoteNode>) {
       onChange={data.onChange}
       onMeasure={data.onMeasure}
     />
+  );
+
+  if (!data.morph) return card;
+
+  return (
+    <ViewTransition
+      name={`note-${data.note.id}`}
+      share="note-morph"
+      default="none"
+    >
+      {card}
+    </ViewTransition>
   );
 }
 
@@ -85,10 +115,28 @@ export default function Canvas() {
   const [nodeMeasurements, setNodeMeasurements] = useState<
     Record<string, NonNullable<NoteNode["measured"]>>
   >({});
+  const [screen, setScreen] = useState({ width: 0, height: 0 });
   const shouldReduceMotion = useReducedMotion();
+  const focusNoteId = searchParams.get("note");
 
   useEffect(() => {
     return () => viewportAnimationRef.current?.stop();
+  }, []);
+
+  useEffect(() => {
+    function updateScreen() {
+      const root = rootRef.current;
+      if (root) {
+        const rect = root.getBoundingClientRect();
+        setScreen({ width: rect.width, height: rect.height });
+        return;
+      }
+      setScreen({ width: window.innerWidth, height: window.innerHeight });
+    }
+
+    updateScreen();
+    window.addEventListener("resize", updateScreen);
+    return () => window.removeEventListener("resize", updateScreen);
   }, []);
 
   useEffect(() => {
@@ -192,22 +240,50 @@ export default function Canvas() {
   }, []);
 
   const nodes = useMemo<NoteNode[]>(
-    () => notes.map((note) => ({
-      id: note.id,
-      type: "note",
-      position: { x: note.x, y: note.y },
-      // Controlled updates must retain dimensions so React Flow keeps nodes visible.
-      measured: nodeMeasurements[note.id],
-      selected: note.id === selectedId,
-      zIndex: note.z,
-      data: {
-        note,
-        onChange: updateNoteText,
-        onMeasure: measureNote,
-        onSelect: bringNoteToFront,
-      },
-    })),
-    [notes, nodeMeasurements, selectedId, updateNoteText, measureNote, bringNoteToFront],
+    () => {
+      const bounds =
+        screen.width > 0
+          ? screen
+          : typeof window === "undefined"
+            ? { width: 0, height: 0 }
+            : { width: window.innerWidth, height: window.innerHeight };
+
+      return notes.map((note) => ({
+        id: note.id,
+        type: "note",
+        position: { x: note.x, y: note.y },
+        // Controlled updates must retain dimensions so React Flow keeps nodes visible.
+        measured: nodeMeasurements[note.id],
+        selected: note.id === selectedId,
+        zIndex: note.z,
+        data: {
+          note,
+          morph:
+            note.id === focusNoteId ||
+            (bounds.width > 0 &&
+              isNoteOnScreen(
+                note,
+                viewport,
+                noteHeightsRef.current.get(note.id) ?? DEFAULT_NOTE_HEIGHT,
+                bounds,
+              )),
+          onChange: updateNoteText,
+          onMeasure: measureNote,
+          onSelect: bringNoteToFront,
+        },
+      }));
+    },
+    [
+      notes,
+      nodeMeasurements,
+      selectedId,
+      focusNoteId,
+      viewport,
+      screen,
+      updateNoteText,
+      measureNote,
+      bringNoteToFront,
+    ],
   );
 
   const handlePaneClick = useCallback(() => notesActions.selectNote(null), []);
