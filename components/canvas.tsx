@@ -15,6 +15,7 @@ import {
   motion,
   useReducedMotion,
 } from "motion/react";
+import { useSearchParams } from "next/navigation";
 
 import {
   ReactFlow,
@@ -22,8 +23,8 @@ import {
   type NodeProps,
   type NodeChange,
 } from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
 
-import CommandPalette from "@/components/command-palette";
 import NoteCard from "@/components/note-card";
 import {
   type Note,
@@ -72,46 +73,27 @@ function isTextInput(target: EventTarget | null) {
 }
 
 export default function Canvas() {
+  const searchParams = useSearchParams();
   const rootRef = useRef<HTMLDivElement>(null);
   const zoomPopoverRef = useRef<HTMLDivElement>(null);
   const [spacePressed, setSpacePressed] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const noteHeightsRef = useRef(new Map<string, number>());
+  const handledNoteRef = useRef<string | null>(null);
   const viewportAnimationRef = useRef<ReturnType<typeof animate> | null>(null);
   const { notes, viewport, selectedId, loaded } = useNotesStore();
   const [nodeMeasurements, setNodeMeasurements] = useState<
     Record<string, NonNullable<NoteNode["measured"]>>
   >({});
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [paletteSession, setPaletteSession] = useState(0);
   const shouldReduceMotion = useReducedMotion();
 
   useEffect(() => {
     return () => viewportAnimationRef.current?.stop();
   }, []);
 
-  const openPalette = useCallback(() => {
-    if (!loaded || draggingId) return;
-    viewportAnimationRef.current?.stop();
-    zoomPopoverRef.current?.hidePopover();
-    setSpacePressed(false);
-    notesActions.selectNote(null);
-    setPaletteSession((current) => current + 1);
-    setPaletteOpen(true);
-  }, [loaded, draggingId]);
-
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.isComposing || paletteOpen) return;
-      if (
-        event.key.toLowerCase() === "k" &&
-        (event.metaKey || event.ctrlKey) &&
-        !event.altKey
-      ) {
-        event.preventDefault();
-        openPalette();
-        return;
-      }
+      if (event.isComposing) return;
 
       if (
         event.target instanceof HTMLElement &&
@@ -159,19 +141,7 @@ export default function Canvas() {
       window.removeEventListener("keyup", handleKeyUp);
       window.removeEventListener("blur", handleWindowBlur);
     };
-  }, [openPalette, paletteOpen, selectedId]);
-
-  function createNote(text: string) {
-    setPaletteOpen(false);
-    const root = rootRef.current;
-    if (!root) return;
-    const rect = root.getBoundingClientRect();
-    notesActions.createNote(text, {
-      width: rect.width,
-      height: rect.height,
-      noteHeights: noteHeightsRef.current,
-    });
-  }
+  }, [selectedId]);
 
   const handleNodesChange = useCallback((changes: NodeChange<NoteNode>[]) => {
     const dimensions = changes.filter(
@@ -300,7 +270,6 @@ export default function Canvas() {
     const note = notes.find((note) => note.id === id);
     const root = rootRef.current;
     if (!note || !root) return;
-    setPaletteOpen(false);
     bringNoteToFront(id);
     const rect = root.getBoundingClientRect();
     const height = noteHeightsRef.current.get(id) ?? DEFAULT_NOTE_HEIGHT;
@@ -310,6 +279,22 @@ export default function Canvas() {
       zoom: viewport.zoom,
     });
   }
+
+  useEffect(() => {
+    const noteId = searchParams.get("note");
+    if (!noteId) {
+      handledNoteRef.current = null;
+      return;
+    }
+    if (!loaded || !rootRef.current) return;
+    if (!notes.some((note) => note.id === noteId)) return;
+    if (handledNoteRef.current === noteId) return;
+    handledNoteRef.current = noteId;
+    openNote(noteId);
+    window.history.replaceState(null, "", "/");
+    // openNote intentionally reads the latest viewport only when the URL changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, notes, searchParams]);
 
   const gridOpacity = Math.min(0.22, Math.max(0.07, viewport.zoom * 0.18));
   const gridStyle = {
@@ -369,19 +354,7 @@ export default function Canvas() {
         />
 
         <AnimatePresence>
-          {paletteOpen ? (
-            <CommandPalette
-              key={paletteSession}
-              notes={notes}
-              onCreate={createNote}
-              onOpenNote={openNote}
-              onClose={() => setPaletteOpen(false)}
-            />
-          ) : null}
-        </AnimatePresence>
-
-        <AnimatePresence>
-          {loaded && notes.length === 0 && !paletteOpen ? (
+          {loaded && notes.length === 0 ? (
             <motion.div
               key="empty"
               className="canvas-empty"
@@ -395,9 +368,6 @@ export default function Canvas() {
           ) : null}
         </AnimatePresence>
 
-        <div className="canvas-wordmark" aria-hidden="true">
-          unfold
-        </div>
         <div className="zoom-controls">
           <div
             ref={zoomPopoverRef}

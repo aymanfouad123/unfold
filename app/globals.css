@@ -65,6 +65,25 @@ button:focus-visible,
   outline-offset: 3px;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.app-chrome {
+  position: fixed;
+  inset: 0;
+  z-index: 1000000;
+  pointer-events: none;
+}
+
 .canvas-shell {
   position: fixed;
   inset: 0;
@@ -134,6 +153,112 @@ button:focus-visible,
   top: 22px;
   left: 24px;
   pointer-events: none;
+}
+
+.view-toggle {
+  position: fixed;
+  top: 15px;
+  left: 50%;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--hairline);
+  border-radius: 9px;
+  background: rgb(38 38 38 / 88%);
+  box-shadow: var(--shadow-rest);
+  pointer-events: auto;
+  transform: translateX(-50%);
+  backdrop-filter: blur(12px);
+}
+
+.view-toggle a {
+  display: grid;
+  width: 29px;
+  height: 25px;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--muted);
+  transition:
+    color 140ms ease,
+    background-color 140ms ease,
+    transform 140ms var(--ease-out);
+}
+
+.view-toggle a:hover,
+.view-toggle a:focus-visible {
+  color: var(--text);
+}
+
+.view-toggle a:focus-visible {
+  outline: 1px solid #777;
+  outline-offset: 2px;
+}
+
+.view-toggle a:active {
+  transform: scale(0.94);
+}
+
+.view-toggle a.is-active {
+  background: rgb(255 255 255 / 8%);
+  color: var(--text);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 5%);
+}
+
+.view-toggle svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.25;
+}
+
+.view-toggle-tip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  display: grid;
+  gap: 7px;
+  min-width: 124px;
+  padding: 8px 9px;
+  border: 1px solid var(--hairline-hover);
+  border-radius: 8px;
+  background: rgb(41 41 41 / 94%);
+  box-shadow: var(--shadow-raised);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-50%) translateY(-3px);
+  transition:
+    opacity 140ms ease,
+    transform 140ms var(--ease-out);
+}
+
+.view-toggle.is-tip-open .view-toggle-tip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  transition-delay: 180ms;
+}
+
+.view-toggle-tip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.view-toggle-tip kbd {
+  padding: 2px 5px;
+  border: 1px solid var(--hairline);
+  border-radius: 5px;
+  background: var(--panel);
+  box-shadow: var(--highlight);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
 }
 
 .zoom-reset {
@@ -326,6 +451,179 @@ button:focus-visible,
   box-shadow:
     var(--shadow-raised),
     0 0 0 1px rgb(255 255 255 / 4%);
+}
+
+.gallery-shell {
+  position: fixed;
+  inset: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 82px clamp(20px, 4vw, 64px) 80px;
+  background: var(--background);
+  color: var(--text);
+  user-select: none;
+}
+
+.gallery-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  max-width: 1440px;
+  margin: 0 auto 32px;
+}
+
+.gallery-header h1 {
+  margin: 0;
+  font-size: clamp(25px, 3vw, 34px);
+  line-height: 1;
+  letter-spacing: -0.035em;
+}
+
+.gallery-header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.gallery-groups {
+  display: flex;
+  max-width: 1440px;
+  margin: 0 auto;
+  flex-direction: column;
+  gap: 46px;
+}
+
+.gallery-group {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 300px;
+}
+
+.gallery-group h2 {
+  margin: 0 0 18px;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 30px 16px;
+}
+
+.gallery-card {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  flex-direction: column;
+}
+
+.gallery-card > :first-child {
+  width: 100%;
+}
+
+.gallery-card-preview {
+  display: flex;
+  width: 100%;
+  min-height: 136px;
+  max-height: 136px;
+  padding: 13px 14px;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: #242424;
+  box-shadow: var(--shadow-rest);
+  flex-direction: column;
+  gap: 6px;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 180ms ease,
+    transform 180ms var(--ease-out);
+}
+
+.gallery-card-preview > strong {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gallery-card-preview > span {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #c1c1c1;
+  font-size: 10px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+}
+
+.gallery-card:hover .gallery-card-preview {
+  border-color: var(--hairline-hover);
+  background: #272727;
+  box-shadow: var(--shadow-raised);
+  transform: translateY(-1px);
+}
+
+.gallery-card.is-selected .gallery-card-preview,
+.gallery-card:focus-visible .gallery-card-preview {
+  border-color: var(--hairline-active);
+  box-shadow:
+    var(--shadow-raised),
+    0 0 0 1px rgb(255 255 255 / 5%);
+}
+
+.gallery-card-meta {
+  display: flex;
+  min-width: 0;
+  padding: 10px 8px 0;
+  flex-direction: column;
+  gap: 3px;
+  text-align: center;
+}
+
+.gallery-card-meta strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gallery-card-meta time {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.gallery-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.gallery-empty span + span {
+  font-size: 11px;
 }
 
 .command-palette-scrim {
@@ -916,6 +1214,20 @@ button:focus-visible,
   .canvas-wordmark {
     top: 18px;
     left: 18px;
+  }
+
+  .gallery-shell {
+    padding: 72px 14px 60px;
+  }
+
+  .gallery-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 24px 10px;
+  }
+
+  .gallery-card-preview {
+    min-height: 118px;
+    max-height: 118px;
   }
 
   .zoom-reset {

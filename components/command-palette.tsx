@@ -27,6 +27,8 @@ type CommandPaletteProps = {
   notes: Note[];
   onCreate: (text: string) => void;
   onOpenNote: (id: string) => void;
+  onShowCanvas: () => void;
+  onShowGallery: () => void;
   onClose: () => void;
 };
 
@@ -114,6 +116,8 @@ export default function CommandPalette({
   notes,
   onCreate,
   onOpenNote,
+  onShowCanvas,
+  onShowGallery,
   onClose,
 }: CommandPaletteProps) {
   const id = useId();
@@ -185,7 +189,9 @@ export default function CommandPalette({
             .slice(0, terms.length ? 8 : 3),
     [notes, terms, askMode],
   );
-  const askIndex = results.length + 1;
+  const canvasIndex = results.length + 1;
+  const galleryIndex = results.length + 2;
+  const askIndex = results.length + 3;
   const hasAskPrefix = ASK_PREFIX.test(query);
   const selectedIndex = askMode
     ? askIndex
@@ -446,6 +452,15 @@ export default function CommandPalette({
       void askAI(prompt);
       return;
     }
+    if (index === canvasIndex || index === galleryIndex) {
+      finishedRef.current = true;
+      pulse(origin);
+      actionTimerRef.current = setTimeout(
+        index === canvasIndex ? onShowCanvas : onShowGallery,
+        shouldReduceMotion ? 0 : 80,
+      );
+      return;
+    }
     finishedRef.current = true;
     pulse(origin);
     requestRef.current?.abort();
@@ -666,17 +681,11 @@ export default function CommandPalette({
     }
   }
 
-  function row(index: number, label: ReactNode, meta: ReactNode) {
+  function row(key: string, index: number, label: ReactNode, meta: ReactNode) {
     const active = selectedIndex === index;
     return (
       <div
-        key={
-          index === 0
-            ? "new"
-            : index === askIndex
-              ? "ask"
-              : results[index - 1].id
-        }
+        key={key}
         id={optionId(index)}
         role="option"
         aria-selected={active}
@@ -823,7 +832,7 @@ export default function CommandPalette({
               >
                 {!askMode ? (
                   <>
-                    {row(0, "New note", <kbd>↵</kbd>)}
+                    {row("new", 0, "New note", <kbd>↵</kbd>)}
                     <div role="group" aria-labelledby={`${id}-notes`}>
                       <div
                         id={`${id}-notes`}
@@ -840,12 +849,28 @@ export default function CommandPalette({
                       ) : null}
                       {results.map((note, index) =>
                         row(
+                          note.id,
                           index + 1,
                           matchedTitle(note.text.split(/\r?\n/)[0], terms),
                           <time dateTime={note.updatedAt}>
                             {dateFormatter.format(new Date(note.updatedAt))}
                           </time>,
                         ),
+                      )}
+                    </div>
+                    <div role="group" aria-labelledby={`${id}-views`}>
+                      <div
+                        id={`${id}-views`}
+                        className="command-palette-section"
+                      >
+                        views
+                      </div>
+                      {row("canvas", canvasIndex, "Show canvas", <kbd>⌘1</kbd>)}
+                      {row(
+                        "gallery",
+                        galleryIndex,
+                        "Show gallery",
+                        <kbd>⌘2</kbd>,
                       )}
                     </div>
                   </>
@@ -855,6 +880,7 @@ export default function CommandPalette({
                     ask
                   </div>
                   {row(
+                    "ask",
                     askIndex,
                     "Ask AI",
                     askMode ? (
