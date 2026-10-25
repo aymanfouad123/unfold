@@ -26,16 +26,13 @@ import {
 import CommandPalette from "@/components/command-palette";
 import NoteCard from "@/components/note-card";
 import {
-  DEFAULT_VIEWPORT,
   type Note,
   type Viewport,
   MIN_ZOOM,
   MAX_ZOOM,
-  findOpenPosition,
-  readCanvasState,
   screenToWorld,
-  writeCanvasState,
 } from "@/lib/notes";
+import { notesActions, useNotesStore } from "@/lib/notes-store";
 
 const NOTE_WIDTH = 240;
 const DEFAULT_NOTE_HEIGHT = 50;
@@ -81,36 +78,13 @@ export default function Canvas() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const noteHeightsRef = useRef(new Map<string, number>());
   const viewportAnimationRef = useRef<ReturnType<typeof animate> | null>(null);
-  const [notes, setNotes] = useState<Note[]>([]);
+  const { notes, viewport, selectedId, loaded } = useNotesStore();
   const [nodeMeasurements, setNodeMeasurements] = useState<
     Record<string, NonNullable<NoteNode["measured"]>>
   >({});
-  const [viewport, setViewport] = useState<Viewport>(DEFAULT_VIEWPORT);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteSession, setPaletteSession] = useState(0);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(false);
   const shouldReduceMotion = useReducedMotion();
-
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      const saved = readCanvasState();
-      setNotes(saved.notes);
-      setViewport(saved.viewport);
-      setLoaded(true);
-    });
-
-    return () => window.cancelAnimationFrame(frame);
-  }, []);
-
-  useEffect(() => {
-    if (!loaded) return;
-    const timeout = window.setTimeout(() => {
-      writeCanvasState({ notes, viewport });
-    }, 100);
-
-    return () => window.clearTimeout(timeout);
-  }, [loaded, notes, viewport]);
 
   useEffect(() => {
     return () => viewportAnimationRef.current?.stop();
@@ -121,7 +95,7 @@ export default function Canvas() {
     viewportAnimationRef.current?.stop();
     zoomPopoverRef.current?.hidePopover();
     setSpacePressed(false);
-    setSelectedId(null);
+    notesActions.selectNote(null);
     setPaletteSession((current) => current + 1);
     setPaletteOpen(true);
   }, [loaded, draggingId]);
@@ -157,15 +131,12 @@ export default function Canvas() {
         selectedId
       ) {
         event.preventDefault();
-        setNotes((current) =>
-          current.filter((note) => note.id !== selectedId),
-        );
-        setSelectedId(null);
+        notesActions.deleteNote(selectedId);
         return;
       }
 
       if (event.key === "Escape") {
-        setSelectedId(null);
+        notesActions.selectNote(null);
         return;
       }
     }
@@ -192,51 +163,14 @@ export default function Canvas() {
 
   function createNote(text: string) {
     setPaletteOpen(false);
-    const trimmed = text.trim();
     const root = rootRef.current;
-    if (!trimmed || !root) return;
+    if (!root) return;
     const rect = root.getBoundingClientRect();
-    const center = screenToWorld({ x: rect.width / 2, y: rect.height / 2 }, viewport);
-
-    // Measure at the card width so long thoughts also avoid nearby notes.
-    const measurement = document.createElement("div");
-    measurement.className = "note-card";
-    measurement.style.visibility = "hidden";
-    measurement.style.pointerEvents = "none";
-    const paragraph = document.createElement("p");
-    paragraph.textContent = trimmed;
-    measurement.append(paragraph);
-    root.append(measurement);
-    const height = measurement.offsetHeight || DEFAULT_NOTE_HEIGHT;
-    measurement.remove();
-
-    const now = new Date().toISOString();
-    const z = notes.reduce((highest, note) => Math.max(highest, note.z), 0) + 1;
-    const position = findOpenPosition(
-      {
-        x: center.x - NOTE_WIDTH / 2,
-        y: center.y - height / 2,
-        width: NOTE_WIDTH,
-        height,
-      },
-      notes.map((note) => ({
-        x: note.x,
-        y: note.y,
-        width: NOTE_WIDTH,
-        height: noteHeightsRef.current.get(note.id) ?? DEFAULT_NOTE_HEIGHT,
-      })),
-    );
-    const note: Note = {
-      id: window.crypto.randomUUID(),
-      text: trimmed,
-      ...position,
-      z,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    setNotes((current) => [...current, note]);
-    setSelectedId(note.id);
+    notesActions.createNote(text, {
+      width: rect.width,
+      height: rect.height,
+      noteHeights: noteHeightsRef.current,
+    });
   }
 
   const handleNodesChange = useCallback((changes: NodeChange<NoteNode>[]) => {
@@ -261,9 +195,8 @@ export default function Canvas() {
     }
     for (const change of changes) {
       if (change.type === "select") {
-        setSelectedId((current) =>
-          change.selected ? change.id : current === change.id ? null : current,
-        );
+        if (change.selected) notesActions.selectNote(change.id);
+        else if (selectedId === change.id) notesActions.selectNote(null);
       }
     }
     const positions = new Map(
@@ -273,46 +206,15 @@ export default function Canvas() {
           : [],
       ),
     );
-    if (positions.size) {
-      setNotes((current) =>
-        current.map((note) => {
-          const position = positions.get(note.id);
-          return position ? { ...note, ...position } : note;
-        }),
-      );
-    }
-  }, []);
+    notesActions.moveNotes(positions);
+  }, [selectedId]);
 
   const updateNoteText = useCallback((id: string, text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) {
-      setNotes((current) => current.filter((note) => note.id !== id));
-      setSelectedId(null);
-      return;
-    }
-
-    setNotes((current) =>
-      current.map((note) =>
-        note.id === id
-          ? { ...note, text: trimmed, updatedAt: new Date().toISOString() }
-          : note,
-      ),
-    );
+    notesActions.updateNoteText(id, text);
   }, []);
 
   const bringNoteToFront = useCallback((id: string) => {
-    setSelectedId(id);
-    setNotes((current) => {
-      const highest = current.reduce(
-        (value, note) => Math.max(value, note.z),
-        0,
-      );
-      return current.map((note) =>
-        note.id === id && note.z < highest
-          ? { ...note, z: highest + 1 }
-          : note,
-      );
-    });
+    notesActions.bringToFront(id);
   }, []);
 
   const measureNote = useCallback((id: string, height: number) => {
@@ -338,7 +240,7 @@ export default function Canvas() {
     [notes, nodeMeasurements, selectedId, updateNoteText, measureNote, bringNoteToFront],
   );
 
-  const handlePaneClick = useCallback(() => setSelectedId(null), []);
+  const handlePaneClick = useCallback(() => notesActions.selectNote(null), []);
   const handleNodeClick = useCallback((_event: unknown, node: NoteNode) => {
     bringNoteToFront(node.id);
   }, [bringNoteToFront]);
@@ -375,7 +277,7 @@ export default function Canvas() {
   function animateViewportTo(target: Viewport) {
     viewportAnimationRef.current?.stop();
     if (shouldReduceMotion) {
-      setViewport(target);
+      notesActions.setViewport(target);
       return;
     }
 
@@ -384,7 +286,7 @@ export default function Canvas() {
       duration: 0.32,
       ease: [0.32, 0.72, 0, 1],
       onUpdate: (progress) => {
-        setViewport({
+        notesActions.setViewport({
           x: start.x + (target.x - start.x) * progress,
           y: start.y + (target.y - start.y) * progress,
           zoom:
@@ -435,7 +337,7 @@ export default function Canvas() {
           nodeTypes={nodeTypes}
           onNodesChange={handleNodesChange}
           viewport={viewport}
-          onViewportChange={setViewport}
+          onViewportChange={notesActions.setViewport}
           minZoom={MIN_ZOOM}
           maxZoom={MAX_ZOOM}
           panOnDrag={[0, 1]}
